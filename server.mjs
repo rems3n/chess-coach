@@ -282,7 +282,7 @@ server.listen(port, '0.0.0.0', () => {
     fetch('https://api.openai.com/v1/responses',{
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${process.env.OPENAI_API_KEY}`},
-      body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5.6-terra',input:'Reply with OK.',max_output_tokens:8,store:false})
+      body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5.6-terra',input:'Reply with OK.',max_output_tokens:16,store:false})
     }).then(async r=>{
       if(r.ok) console.log('OpenAI API self-test OK');
       else console.error('OpenAI API self-test failed:',r.status,(await r.text()).slice(0,300));
