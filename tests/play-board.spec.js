@@ -23,10 +23,12 @@ test('Play board renders a complete square 8x8 board', async ({ page }) => {
   await expect(host.locator('g.board rect.square')).toHaveCount(64);
   await expect(host.locator('g.pieces g[data-piece]')).toHaveCount(32);
 
-  const opponent = page.getByText('Training opponent').first();
-  const player = page.getByText('You', { exact: true }).first();
-  await expect(opponent).toBeVisible();
-  await expect(player).toBeVisible();
+  const playerRows = page.locator('.boardCard .player');
+  await expect(playerRows).toHaveCount(2);
+  const opponent = playerRows.nth(0);
+  const player = playerRows.nth(1);
+  await expect(opponent).toContainText('Training opponent');
+  await expect(player).toContainText('You');
 
   const playerBox = await player.boundingBox();
   expect(playerBox.y - (hostBox.y + hostBox.height)).toBeLessThan(60);
