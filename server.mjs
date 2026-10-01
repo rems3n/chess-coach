@@ -111,6 +111,46 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, result);
       } catch (err) { return json(res, 400, { error: err.message || 'Game analysis failed' }); }
     }
+    if (url.pathname === '/api/realtime-session' && req.method === 'POST') {
+      try {
+        if (!process.env.OPENAI_API_KEY) return json(res, 503, { error:'OPENAI_API_KEY is not configured' });
+        const body = await readJson(req, 1_000_000);
+        if (!body.sdp || typeof body.sdp !== 'string') throw new Error('SDP offer is required');
+        const coachingPrompt = await fs.readFile(path.join(__dirname, 'coach-system-prompt.md'), 'utf8');
+        const context = body.context || {};
+        const sessionConfig = JSON.stringify({
+          type:'realtime',
+          model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1',
+          instructions:`${coachingPrompt}
+
+VOICE MODE:
+- Speak naturally and concisely.
+- The student may think aloud while playing. Listen to the reasoning, not just the final move.
+- Do not narrate every move or centipawn change.
+- Ask one useful question at a time when discovery will help.
+- If the student asks a direct question, answer it directly.
+- Current app context at session start:
+${JSON.stringify(context)}
+- The app may send later text-only context update items containing newer board/profile state. Treat those as private coaching context; do not answer the context-update item itself unless the student then asks about it.
+`,
+          audio:{output:{voice:'marin'}}
+        });
+        const fd = new FormData();
+        fd.set('sdp', body.sdp);
+        fd.set('session', sessionConfig);
+        const r = await fetch('https://api.openai.com/v1/realtime/calls',{
+          method:'POST',
+          headers:{
+            Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,
+            'OpenAI-Safety-Identifier':'chess-coach-personal-user'
+          },
+          body:fd
+        });
+        const answer = await r.text();
+        if(!r.ok) return json(res,r.status,{error:answer||'Realtime session creation failed'});
+        return json(res,201,{sdp:answer,model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1'});
+      } catch(err){ return json(res,400,{error:err.message||'Realtime session failed'}); }
+    }
     if (url.pathname === '/api/profile-plan' && req.method === 'POST') {
       try {
         const body = await readJson(req);
@@ -200,4 +240,14 @@ server.listen(port, '0.0.0.0', () => {
   analyzeFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', { depth: 6, multiPv: 1 })
     .then(r => console.log(`Stockfish self-test OK: ${r.bestmove || 'analysis returned'}`))
     .catch(err => console.error('Stockfish self-test failed:', err.message));
+  if (process.env.OPENAI_API_KEY) {
+    fetch('https://api.openai.com/v1/responses',{
+      method:'POST',
+      headers:{'content-type':'application/json',authorization:`Bearer ${process.env.OPENAI_API_KEY}`},
+      body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5.6-terra',input:'Reply with OK.',max_output_tokens:8,store:false})
+    }).then(async r=>{
+      if(r.ok) console.log('OpenAI API self-test OK');
+      else console.error('OpenAI API self-test failed:',r.status,(await r.text()).slice(0,300));
+    }).catch(err=>console.error('OpenAI API self-test failed:',err.message));
+  } else console.warn('OpenAI API key not configured');
 });
