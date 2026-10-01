@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { analyzeFen } from './lib/stockfish.mjs';
 import { analyzeGame } from './lib/game-analysis.mjs';
 import { coachResponse } from './lib/coach.mjs';
+import { generateProfilePlan } from './lib/profile.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -109,6 +110,18 @@ const server = http.createServer(async (req, res) => {
         });
         return json(res, 200, result);
       } catch (err) { return json(res, 400, { error: err.message || 'Game analysis failed' }); }
+    }
+    if (url.pathname === '/api/profile-plan' && req.method === 'POST') {
+      try {
+        const body = await readJson(req);
+        const result = await generateProfilePlan({
+          goals: body.goals || { next:1800, longTerm:2000 },
+          analyzedGames: Array.isArray(body.analyzedGames) ? body.analyzedGames.slice(0,40) : [],
+          coachingEvidence: Array.isArray(body.coachingEvidence) ? body.coachingEvidence.slice(-100) : [],
+          currentProfile: body.currentProfile || null
+        });
+        return json(res, 200, result);
+      } catch (err) { return json(res, 400, { error: err.message || 'Profile generation failed' }); }
     }
     if (url.pathname === '/api/opponent-move' && req.method === 'POST') {
       try {
