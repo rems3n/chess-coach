@@ -62,3 +62,9 @@
 
 .puzzleProgressGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
 @media(max-width:740px){.puzzleProgressGrid{grid-template-columns:repeat(2,1fr)}}
+
+.puzzleToolbar{display:flex;align-items:center;gap:10px;padding:8px}
+.puzzleToolbar .puzzleTabs{padding:0;flex:1}
+.sessionSize{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}
+.sessionSize .miniSelect{margin-left:0}
+@media(max-width:740px){.puzzleToolbar{align-items:flex-start;flex-direction:column}.sessionSize{width:100%;justify-content:flex-end}}
