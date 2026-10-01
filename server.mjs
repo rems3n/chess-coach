@@ -2,6 +2,9 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { analyzeFen } from './lib/stockfish.mjs';
+import { analyzeGame } from './lib/game-analysis.mjs';
+import { coachResponse } from './lib/coach.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -15,6 +18,18 @@ const json = (res, status, body) => {
   });
   res.end(JSON.stringify(body));
 };
+
+async function readJson(req, maxBytes = 3_000_000) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw new Error('Request too large');
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return raw ? JSON.parse(raw) : {};
+}
 
 async function chessComImport(username) {
   const clean = username.trim().toLowerCase();
@@ -70,6 +85,72 @@ const server = http.createServer(async (req, res) => {
       const username = url.searchParams.get('username') || '';
       try { return json(res, 200, await chessComImport(username)); }
       catch (err) { return json(res, 400, { error: err.message || 'Import failed' }); }
+    }
+    if (url.pathname === '/api/analyze-position' && req.method === 'POST') {
+      try {
+        const body = await readJson(req);
+        if (!body.fen) throw new Error('FEN is required');
+        const result = await analyzeFen(body.fen, {
+          depth: Number(body.depth || 10),
+          multiPv: Number(body.multiPv || 3)
+        });
+        return json(res, 200, result);
+      } catch (err) { return json(res, 400, { error: err.message || 'Position analysis failed' }); }
+    }
+    if (url.pathname === '/api/analyze-game' && req.method === 'POST') {
+      try {
+        const body = await readJson(req);
+        const result = await analyzeGame({
+          pgn: body.pgn,
+          color: body.color,
+          username: body.username,
+          depth: Number(body.depth || 9),
+          maxPlayerMoves: Number(body.maxPlayerMoves || 18)
+        });
+        return json(res, 200, result);
+      } catch (err) { return json(res, 400, { error: err.message || 'Game analysis failed' }); }
+    }
+    if (url.pathname === '/api/coach' && req.method === 'POST') {
+      try {
+        const body = await readJson(req);
+        const engineFen = body.fenBefore || body.fen || body.currentFen;
+        let engine = null;
+        let played = null;
+        if (engineFen) {
+          engine = await analyzeFen(engineFen, { depth: Number(body.depth || 9), multiPv: 3 });
+          if (body.lastMoveUci && body.fenBefore) {
+            played = await analyzeFen(body.fenBefore, {
+              depth: Number(body.depth || 9),
+              multiPv: 1,
+              searchMoves: [body.lastMoveUci]
+            });
+          }
+        }
+        const context = {
+          event: body.event || 'user_question',
+          mode: body.mode || 'normal',
+          currentFen: body.currentFen || body.fen || null,
+          fenBefore: body.fenBefore || null,
+          lastMoveSan: body.lastMoveSan || null,
+          lastMoveUci: body.lastMoveUci || null,
+          recentMoves: Array.isArray(body.recentMoves) ? body.recentMoves.slice(-20) : [],
+          conversation: Array.isArray(body.messages) ? body.messages.slice(-12) : [],
+          studentProfile: body.studentProfile || {
+            approximateRating: '1200-1500 online',
+            nextGoal: 1800,
+            longTermGoal: 2000,
+            currentPriorities: ['candidate generation','defensive awareness','calculation discipline']
+          },
+          engine: engine ? { bestmove: engine.bestmove, lines: engine.lines.slice(0,3), played: played?.lines?.[0] || null } : null
+        };
+        try {
+          const coach = await coachResponse(context);
+          return json(res, 200, { coach, engine: context.engine, model: process.env.OPENAI_MODEL || 'gpt-5.6-terra' });
+        } catch (err) {
+          if (err.code === 'MISSING_OPENAI_KEY') return json(res, 503, { error: err.message, missingKey: true, engine: context.engine });
+          throw err;
+        }
+      } catch (err) { return json(res, 400, { error: err.message || 'Coach request failed' }); }
     }
     let filePath = url.pathname === '/' ? path.join(publicDir, 'index.html') : path.join(publicDir, url.pathname);
     if (!filePath.startsWith(publicDir)) return json(res, 403, { error: 'Forbidden' });
