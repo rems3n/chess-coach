@@ -64,3 +64,22 @@ For local Stockfish features, install Stockfish and set `STOCKFISH_PATH` if it i
 ## Railway
 
 The project deploys automatically from `rems3n/chess-coach` `main`, uses Railway's injected `PORT`, and exposes `/health`.
+
+
+## Puzzle mastery and spaced repetition
+
+Personal puzzle training is generated from critical positions in analyzed games.
+
+- Stable puzzle IDs tie review history to the original game position.
+- Every attempt records correctness, response time, hints used, streak, mastery, and next review time.
+- Missed puzzles return after 10 minutes.
+- Clean first-try solves expand review intervals from 1 day to 3, 7, 14, 30, 60, and 90 days.
+- Assisted solves receive shorter reinforcement intervals.
+- The For You queue prioritizes overdue and low-mastery positions, then new positions.
+- Filters support Due, New, Mastered, and All positions.
+- Sessions can be limited to 5, 10, 20, or all available positions.
+- Stockfish PVs turn suitable positions into short multi-move calculation drills.
+- AI puzzle coaching can be used conversationally; asking for help counts as assistance for mastery scheduling.
+- Puzzle mastery feeds the Home recommendation and My Chess progress views.
+
+For the personal MVP, mastery is persisted in browser localStorage under `cc_puzzle_mastery`. The data model is intentionally structured for a later move to Postgres/Supabase.
