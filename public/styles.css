@@ -59,3 +59,6 @@
 .puzzleCoachBox h3{font-size:13px;margin:0 0 10px}
 .puzzleCompose{padding:10px 0 0;border-top:0}
 @media(max-width:740px){.puzzleStats{grid-template-columns:repeat(2,1fr)}.puzzleStats>div:nth-child(2){border-right:0}.puzzleStats>div:nth-child(-n+2){border-bottom:1px solid var(--border)}}
+
+.puzzleProgressGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+@media(max-width:740px){.puzzleProgressGrid{grid-template-columns:repeat(2,1fr)}}
