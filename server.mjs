@@ -110,6 +110,18 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, result);
       } catch (err) { return json(res, 400, { error: err.message || 'Game analysis failed' }); }
     }
+    if (url.pathname === '/api/opponent-move' && req.method === 'POST') {
+      try {
+        const body = await readJson(req);
+        if (!body.fen) throw new Error('FEN is required');
+        const result = await analyzeFen(body.fen, {
+          multiPv: 1,
+          elo: Number(body.elo || 1450),
+          movetime: Number(body.movetime || 180)
+        });
+        return json(res, 200, { move: result.bestmove, analysis: result.lines[0] || null, elo: Number(body.elo || 1450) });
+      } catch (err) { return json(res, 400, { error: err.message || 'Opponent move failed' }); }
+    }
     if (url.pathname === '/api/coach' && req.method === 'POST') {
       try {
         const body = await readJson(req);
