@@ -6,6 +6,7 @@ import { analyzeFen } from './lib/stockfish.mjs';
 import { analyzeGame } from './lib/game-analysis.mjs';
 import { coachResponse } from './lib/coach.mjs';
 import { generateProfilePlan } from './lib/profile.mjs';
+import { generateLesson } from './lib/lesson.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -151,6 +152,18 @@ ${JSON.stringify(context)}
         if(!r.ok) return json(res,r.status,{error:answer||'Realtime session creation failed'});
         return json(res,201,{sdp:answer,model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',voice:process.env.OPENAI_VOICE || 'marin'});
       } catch(err){ return json(res,400,{error:err.message||'Realtime session failed'}); }
+    }
+    if (url.pathname === '/api/lesson' && req.method === 'POST') {
+      try {
+        const body = await readJson(req);
+        if (!body.topic) throw new Error('Lesson topic is required');
+        const result = await generateLesson({
+          topic: String(body.topic),
+          profile: body.profile || null,
+          coachingEvidence: Array.isArray(body.coachingEvidence) ? body.coachingEvidence : []
+        });
+        return json(res, 200, result);
+      } catch (err) { return json(res, 400, { error: err.message || 'Lesson generation failed' }); }
     }
     if (url.pathname === '/api/profile-plan' && req.method === 'POST') {
       try {
