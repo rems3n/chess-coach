@@ -168,4 +168,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, '0.0.0.0', () => console.log(`Chess Coach listening on ${port}`));
+server.listen(port, '0.0.0.0', () => {
+  console.log(`Chess Coach listening on ${port}`);
+  analyzeFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', { depth: 6, multiPv: 1 })
+    .then(r => console.log(`Stockfish self-test OK: ${r.bestmove || 'analysis returned'}`))
+    .catch(err => console.error('Stockfish self-test failed:', err.message));
+});
