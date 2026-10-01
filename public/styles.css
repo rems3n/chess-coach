@@ -41,3 +41,21 @@
 .openingStat span{display:block;color:var(--muted);font-size:9px;margin-top:2px}
 @media(max-width:1100px){.openingColumns{grid-template-columns:1fr}}
 @media(max-width:740px){.openingRow{grid-template-columns:1fr auto}.openingStat{display:none}.openingRow .btn{align-self:center}}
+
+.puzzleDashboard{margin-bottom:16px;overflow:hidden}
+.puzzleStats{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)}
+.puzzleStats>div{padding:13px 16px;border-right:1px solid var(--border)}
+.puzzleStats>div:last-child{border-right:0}
+.puzzleStats b{display:block;font-size:20px}
+.puzzleStats span{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+.puzzleTabs{display:flex;gap:4px;padding:8px;overflow:auto}
+.puzzleTabs button{border:0;background:transparent;color:var(--muted);padding:7px 10px;border-radius:8px;white-space:nowrap;font-size:12px}
+.puzzleTabs button.active{background:var(--blue50);color:var(--blue);font-weight:700}
+.masteryChip{background:#eff6ff!important;color:#1d4ed8!important;border-color:#bfdbfe!important}
+.masteryMeter{height:8px;background:#eef2f7;border-radius:999px;overflow:hidden;margin:14px 0 8px}
+.masteryMeta{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:10px;margin-bottom:14px}
+.puzzleFeedback.continue{background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8}
+.puzzleCoachBox{margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+.puzzleCoachBox h3{font-size:13px;margin:0 0 10px}
+.puzzleCompose{padding:10px 0 0;border-top:0}
+@media(max-width:740px){.puzzleStats{grid-template-columns:repeat(2,1fr)}.puzzleStats>div:nth-child(2){border-right:0}.puzzleStats>div:nth-child(-n+2){border-bottom:1px solid var(--border)}}
