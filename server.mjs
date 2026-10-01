@@ -125,6 +125,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/coach' && req.method === 'POST') {
       try {
         const body = await readJson(req);
+        if (!process.env.OPENAI_API_KEY) return json(res, 503, { error: 'OPENAI_API_KEY is not configured', missingKey: true });
         const engineFen = body.fenBefore || body.fen || body.currentFen;
         let engine = null;
         let played = null;
