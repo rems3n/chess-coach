@@ -163,6 +163,44 @@ ${JSON.stringify(context)}
         return json(res, 200, result);
       } catch (err) { return json(res, 400, { error: err.message || 'Profile generation failed' }); }
     }
+    if (url.pathname === '/api/realtime-call' && req.method === 'POST') {
+      try {
+        if (!process.env.OPENAI_API_KEY) return json(res, 503, { error: 'OPENAI_API_KEY is not configured', missingKey: true });
+        const body = await readJson(req, 1_500_000);
+        if (!body.sdp || typeof body.sdp !== 'string') throw new Error('SDP offer is required');
+        const coachPrompt = await fs.readFile(path.join(__dirname, 'coach-system-prompt.md'), 'utf8');
+        const context = body.context || {};
+        const session = {
+          type: 'realtime',
+          model: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',
+          output_modalities: ['audio'],
+          audio: {
+            input: { turn_detection: { type: 'semantic_vad' } },
+            output: { voice: process.env.OPENAI_VOICE || 'marin' }
+          },
+          instructions: coachPrompt + '\n\nVOICE SESSION CONTEXT\n' + JSON.stringify(context) +
+            '\nKeep spoken coaching concise and natural. Do not narrate engine scores. Ask one useful question at a time when appropriate.'
+        };
+        const fd = new FormData();
+        fd.set('sdp', body.sdp);
+        fd.set('session', JSON.stringify(session));
+        const r = await fetch('https://api.openai.com/v1/realtime/calls', {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            'OpenAI-Safety-Identifier': 'chess-coach-personal-user'
+          },
+          body: fd
+        });
+        const answer = await r.text();
+        if (!r.ok) {
+          let message = answer;
+          try { message = JSON.parse(answer)?.error?.message || answer; } catch {}
+          throw new Error(message || 'Realtime session creation failed');
+        }
+        return json(res, 200, { sdp: answer, model: session.model, voice: session.audio.output.voice });
+      } catch (err) { return json(res, 400, { error: err.message || 'Realtime session failed' }); }
+    }
     if (url.pathname === '/api/opponent-move' && req.method === 'POST') {
       try {
         const body = await readJson(req);
