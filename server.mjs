@@ -113,14 +113,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/realtime-session' && req.method === 'POST') {
       try {
-        if (!process.env.OPENAI_API_KEY) return json(res, 503, { error:'OPENAI_API_KEY is not configured' });
+        if (!process.env.OPENAI_API_KEY) return json(res, 503, { error:'OPENAI_API_KEY is not configured', missingKey:true });
         const body = await readJson(req, 1_000_000);
         if (!body.sdp || typeof body.sdp !== 'string') throw new Error('SDP offer is required');
         const coachingPrompt = await fs.readFile(path.join(__dirname, 'coach-system-prompt.md'), 'utf8');
         const context = body.context || {};
         const sessionConfig = JSON.stringify({
           type:'realtime',
-          model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1',
+          model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',
           instructions:`${coachingPrompt}
 
 VOICE MODE:
@@ -133,7 +133,8 @@ VOICE MODE:
 ${JSON.stringify(context)}
 - The app may send later text-only context update items containing newer board/profile state. Treat those as private coaching context; do not answer the context-update item itself unless the student then asks about it.
 `,
-          audio:{output:{voice:'marin'}}
+          output_modalities:['audio'],
+          audio:{input:{turn_detection:{type:'semantic_vad'}},output:{voice:process.env.OPENAI_VOICE || 'marin'}}
         });
         const fd = new FormData();
         fd.set('sdp', body.sdp);
@@ -148,7 +149,7 @@ ${JSON.stringify(context)}
         });
         const answer = await r.text();
         if(!r.ok) return json(res,r.status,{error:answer||'Realtime session creation failed'});
-        return json(res,201,{sdp:answer,model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1'});
+        return json(res,201,{sdp:answer,model:process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',voice:process.env.OPENAI_VOICE || 'marin'});
       } catch(err){ return json(res,400,{error:err.message||'Realtime session failed'}); }
     }
     if (url.pathname === '/api/profile-plan' && req.method === 'POST') {
@@ -162,44 +163,6 @@ ${JSON.stringify(context)}
         });
         return json(res, 200, result);
       } catch (err) { return json(res, 400, { error: err.message || 'Profile generation failed' }); }
-    }
-    if (url.pathname === '/api/realtime-call' && req.method === 'POST') {
-      try {
-        if (!process.env.OPENAI_API_KEY) return json(res, 503, { error: 'OPENAI_API_KEY is not configured', missingKey: true });
-        const body = await readJson(req, 1_500_000);
-        if (!body.sdp || typeof body.sdp !== 'string') throw new Error('SDP offer is required');
-        const coachPrompt = await fs.readFile(path.join(__dirname, 'coach-system-prompt.md'), 'utf8');
-        const context = body.context || {};
-        const session = {
-          type: 'realtime',
-          model: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',
-          output_modalities: ['audio'],
-          audio: {
-            input: { turn_detection: { type: 'semantic_vad' } },
-            output: { voice: process.env.OPENAI_VOICE || 'marin' }
-          },
-          instructions: coachPrompt + '\n\nVOICE SESSION CONTEXT\n' + JSON.stringify(context) +
-            '\nKeep spoken coaching concise and natural. Do not narrate engine scores. Ask one useful question at a time when appropriate.'
-        };
-        const fd = new FormData();
-        fd.set('sdp', body.sdp);
-        fd.set('session', JSON.stringify(session));
-        const r = await fetch('https://api.openai.com/v1/realtime/calls', {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            'OpenAI-Safety-Identifier': 'chess-coach-personal-user'
-          },
-          body: fd
-        });
-        const answer = await r.text();
-        if (!r.ok) {
-          let message = answer;
-          try { message = JSON.parse(answer)?.error?.message || answer; } catch {}
-          throw new Error(message || 'Realtime session creation failed');
-        }
-        return json(res, 200, { sdp: answer, model: session.model, voice: session.audio.output.voice });
-      } catch (err) { return json(res, 400, { error: err.message || 'Realtime session failed' }); }
     }
     if (url.pathname === '/api/opponent-move' && req.method === 'POST') {
       try {
