@@ -21,10 +21,11 @@ async function coachEvent(event,fenBefore,move){
   return false;
 }
 async function coachAfterMove(fenBefore,move){
+  if(s.missingKey){if(!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();return}
   const paused=await coachEvent('after_move',fenBefore,move);
   if(!paused&&!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();
 }
-async function coachAfterOpponent(fenBefore,move){await coachEvent('opponent_move',fenBefore,move)}
+async function coachAfterOpponent(fenBefore,move){if(s.missingKey)return;await coachEvent('opponent_move',fenBefore,move)}
 async function makeOpponentMove(){
   if(s.opponentBusy||s.paused||s.game.isGameOver()||s.game.turn()!=='b')return;
   s.opponentBusy=true;render();
