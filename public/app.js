@@ -1,9 +1,10 @@
 import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1.4.0/+esm';
 import { Chessboard as CmChessboard, COLOR, INPUT_EVENT_TYPE } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@8/src/Chessboard.js';
+import { emptyMastery, recordPuzzleAttempt, masteryStatus, prioritizePuzzles, masterySummary } from './mastery.js';
 
 const P={wp:'♙',wn:'♘',wb:'♗',wr:'♖',wq:'♕',wk:'♔',bp:'♟',bn:'♞',bb:'♝',br:'♜',bq:'♛',bk:'♚'};
 const NAV=[['home','⌂','Home'],['play','♞','Play'],['puzzles','✣','Puzzles'],['learn','▤','Learn'],['openings','♙','Openings'],['analyze','⌕','Analyze'],['progress','▥','Progress']];
-const s={route:location.hash.replace('#/','')||'home',game:new Chess(),sel:null,legal:[],orient:'white',games:JSON.parse(localStorage.getItem('cc_games')||'[]'),user:localStorage.getItem('cc_chess_user')||'',review:null,rgame:null,ply:0,toast:null,coachBusy:false,analysisBusy:false,missingKey:false,opponentBusy:false,paused:false,opponentElo:1450,coachMode:'normal',reviewCoachBusy:false,reviewMessages:[],profilePlan:JSON.parse(localStorage.getItem('cc_profile_plan')||'null'),coachingEvidence:JSON.parse(localStorage.getItem('cc_coaching_evidence')||'[]'),profileBusy:false,batchBusy:false,voiceStatus:'off',voiceError:null,puzzleIndex:0,puzzleResult:null,puzzleAttempt:null,puzzleCoachBusy:false,puzzleMessages:[],lessonTopic:null,lessonBusy:false,lessonCache:JSON.parse(localStorage.getItem('cc_lessons')||'{}'),messages:[{role:'coach',text:'Play naturally. I’ll focus on your reasoning, not narrate every engine change.'}]};
+const s={route:location.hash.replace('#/','')||'home',game:new Chess(),sel:null,legal:[],orient:'white',games:JSON.parse(localStorage.getItem('cc_games')||'[]'),user:localStorage.getItem('cc_chess_user')||'',review:null,rgame:null,ply:0,toast:null,coachBusy:false,analysisBusy:false,missingKey:false,opponentBusy:false,paused:false,opponentElo:1450,coachMode:'normal',reviewCoachBusy:false,reviewMessages:[],profilePlan:JSON.parse(localStorage.getItem('cc_profile_plan')||'null'),coachingEvidence:JSON.parse(localStorage.getItem('cc_coaching_evidence')||'[]'),profileBusy:false,batchBusy:false,voiceStatus:'off',voiceError:null,puzzleIndex:0,puzzleResult:null,puzzleAttempt:null,puzzleCoachBusy:false,puzzleMessages:[],puzzleMastery:JSON.parse(localStorage.getItem('cc_puzzle_mastery')||'{}'),puzzleFilter:'for_you',puzzleHints:0,puzzleWrongThisRound:false,puzzleStartedAt:null,puzzleLine:null,puzzleLineLoading:false,puzzleLineIndex:0,puzzleFen:null,puzzleBaseId:null,puzzleStep:0,lessonTopic:null,lessonBusy:false,lessonCache:JSON.parse(localStorage.getItem('cc_lessons')||'{}'),messages:[{role:'coach',text:'Play naturally. I’ll focus on your reasoning, not narrate every engine change.'}]};
 const app=document.querySelector('#app');
 let voicePeer=null,voiceChannel=null,voiceMedia=null,voiceAudio=null;
 let mountedBoards=[];
@@ -78,6 +79,7 @@ const save=()=>localStorage.setItem('cc_games',JSON.stringify(s.games.slice(0,25
 const saveEvidence=()=>localStorage.setItem('cc_coaching_evidence',JSON.stringify(s.coachingEvidence.slice(-200)));
 const saveProfile=()=>localStorage.setItem('cc_profile_plan',JSON.stringify(s.profilePlan));
 const saveLessons=()=>localStorage.setItem('cc_lessons',JSON.stringify(s.lessonCache));
+const savePuzzleMastery=()=>localStorage.setItem('cc_puzzle_mastery',JSON.stringify(s.puzzleMastery));
 function captureEvidence(items=[]){if(!items.length)return;s.coachingEvidence.push(...items.map(x=>({...x,at:Date.now()})));saveEvidence()}
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok){const e=new Error(d.error||'Request failed');e.data=d;throw e}return d}
 function recentMoves(game=s.game){return game.history().slice(-20)}
@@ -167,36 +169,112 @@ async function batchAnalyze(){
   pop(`Analyzed ${done} game${done===1?'':'s'}.`);
 }
 
+
+function hashText(text=''){
+  let h=2166136261;
+  for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619)}
+  return (h>>>0).toString(36);
+}
 function puzzleItems(){
   const seen=new Set(),items=[];
   for(const g of s.games){
     for(const p of g.analysis?.criticalPositions||[]){
       if(!p?.fen||!p?.bestUci||seen.has(p.fen))continue;
       seen.add(p.fen);
-      items.push({...p,gameId:g.id,opponent:g.opponent||'Opponent',timeClass:g.timeClass||'',source:'your_game'});
+      const id=`${g.id||'game'}:${p.ply||p.moveNumber||0}:${hashText(p.fen)}`;
+      items.push({...p,id,gameId:g.id,opponent:g.opponent||'Opponent',timeClass:g.timeClass||'',source:'your_game'});
     }
   }
-  return items.sort((a,b)=>(b.cpLoss||0)-(a.cpLoss||0));
+  return items;
+}
+function puzzleQueue(){
+  const all=puzzleItems();
+  if(s.puzzleFilter==='all')return [...all].sort((a,b)=>(b.cpLoss||0)-(a.cpLoss||0));
+  if(s.puzzleFilter==='due')return prioritizePuzzles(all.filter(x=>masteryStatus(s.puzzleMastery[x.id])==='due'),s.puzzleMastery);
+  if(s.puzzleFilter==='new')return [...all].filter(x=>masteryStatus(s.puzzleMastery[x.id])==='new').sort((a,b)=>(b.cpLoss||0)-(a.cpLoss||0));
+  if(s.puzzleFilter==='mastered')return [...all].filter(x=>masteryStatus(s.puzzleMastery[x.id])==='mastered').sort((a,b)=>(b.cpLoss||0)-(a.cpLoss||0));
+  return prioritizePuzzles(all,s.puzzleMastery);
 }
 function currentPuzzle(){
-  const items=puzzleItems();
+  const items=puzzleQueue();
   if(!items.length)return null;
   return items[s.puzzleIndex%items.length];
 }
+function ensurePuzzleState(p){
+  if(!p)return;
+  if(s.puzzleBaseId!==p.id){
+    s.puzzleBaseId=p.id;
+    s.puzzleFen=p.fen;
+    s.puzzleLineIndex=0;
+    s.puzzleStep=0;
+    s.puzzleResult=null;
+    s.puzzleAttempt=null;
+    s.puzzleHints=0;
+    s.puzzleWrongThisRound=false;
+    s.puzzleStartedAt=Date.now();
+    s.puzzleMessages=[];
+    s.puzzleLine=null;
+    s.puzzleLineLoading=false;
+  }
+}
+async function loadPuzzleLine(p){
+  if(!p||s.puzzleLineLoading||(s.puzzleLine?.id===p.id))return;
+  s.puzzleLineLoading=true;
+  try{
+    const d=await post('/api/analyze-position',{fen:p.fen,depth:10,multiPv:1});
+    const pv=d.lines?.[0]?.pv||[];
+    s.puzzleLine={id:p.id,pv:pv.slice(0,6)};
+  }catch(e){console.warn('Puzzle continuation unavailable',e)}
+  finally{s.puzzleLineLoading=false}
+}
+function puzzleRecord(p){
+  return p?{...emptyMastery(p.id),...(s.puzzleMastery[p.id]||{}),id:p.id}:null;
+}
+function savePuzzleOutcome(p,correct){
+  if(!p)return;
+  const existing=puzzleRecord(p);
+  const updated=recordPuzzleAttempt(existing,{
+    correct,
+    firstTry:correct&&!s.puzzleWrongThisRound&&s.puzzleHints===0,
+    hints:s.puzzleHints,
+    responseMs:Math.max(0,Date.now()-(s.puzzleStartedAt||Date.now()))
+  });
+  s.puzzleMastery[p.id]=updated;
+  savePuzzleMastery();
+}
 function nextPuzzle(){
-  const items=puzzleItems();if(!items.length)return;
-  s.puzzleIndex=(s.puzzleIndex+1)%items.length;s.puzzleResult=null;s.puzzleAttempt=null;s.puzzleMessages=[];render();
+  const items=puzzleQueue();if(!items.length)return;
+  s.puzzleIndex=(s.puzzleIndex+1)%items.length;
+  s.puzzleBaseId=null;
+  ensurePuzzleState(currentPuzzle());
+  render();
 }
 function resetPuzzle(){s.puzzleResult=null;s.puzzleAttempt=null;render()}
+function setPuzzleFilter(filter){
+  s.puzzleFilter=filter;s.puzzleIndex=0;s.puzzleBaseId=null;
+  ensurePuzzleState(currentPuzzle());render();
+}
+function formatNextReview(record){
+  if(!record?.attempts)return 'New';
+  const ms=(record.nextReviewAt||0)-Date.now();
+  if(ms<=0)return 'Due now';
+  const mins=Math.ceil(ms/60000);
+  if(mins<60)return `In ${mins} min`;
+  const hrs=Math.ceil(mins/60);
+  if(hrs<24)return `In ${hrs} hr`;
+  const days=Math.ceil(hrs/24);
+  return `In ${days} day${days===1?'':'s'}`;
+}
 async function askPuzzleCoach(text){
   const p=currentPuzzle();if(!p||!text||s.puzzleCoachBusy)return;
+  s.puzzleHints+=1;
   s.puzzleMessages.push({role:'user',text});s.puzzleCoachBusy=true;render();
   try{
     const d=await post('/api/coach',{
       event:'puzzle',
       mode:'guided',
-      fen:p.fen,
-      currentFen:p.fen,
+      fen:s.puzzleFen||p.fen,
+      currentFen:s.puzzleFen||p.fen,
       messages:s.puzzleMessages,
       studentProfile:s.profilePlan,
       reviewContext:{puzzle:{
@@ -210,7 +288,9 @@ async function askPuzzleCoach(text){
         classification:p.classification,
         cpLoss:p.cpLoss,
         currentAttempt:s.puzzleAttempt,
-        currentResult:s.puzzleResult
+        currentResult:s.puzzleResult,
+        mastery:puzzleRecord(p),
+        step:s.puzzleStep
       }}
     });
     if(d.coach?.message)s.puzzleMessages.push({role:'coach',text:d.coach.message});
@@ -218,15 +298,27 @@ async function askPuzzleCoach(text){
   }catch(e){s.puzzleMessages.push({role:'coach',text:`Coach error: ${e.message}`})}
   finally{s.puzzleCoachBusy=false;render()}
 }
+function puzzleDashboard(summary){
+  const tabs=[['for_you','For You'],['due',`Due (${summary.due})`],['new',`New (${summary.new})`],['mastered',`Mastered (${summary.mastered})`],['all','All']];
+  return `<div class="puzzleDashboard card"><div class="puzzleStats"><div><b>${summary.due}</b><span>due now</span></div><div><b>${summary.learning}</b><span>learning</span></div><div><b>${summary.mastered}</b><span>mastered</span></div><div><b>${summary.total}</b><span>total</span></div></div><div class="puzzleTabs">${tabs.map(([v,l])=>`<button class="${s.puzzleFilter===v?'active':''}" data-puzzle-filter="${v}">${l}</button>`).join('')}</div></div>`;
+}
 function puzzles(){
-  const items=puzzleItems(),p=currentPuzzle();
-  if(!p)return `<section class="page"><div class="head"><div><h1>Puzzles</h1><p>Personalized tactical and calculation practice.</p></div></div><div class="card pad emptyState"><h3>Build your personal puzzle queue</h3><p>Analyze a few of your Chess.com or uploaded games. Critical positions from those games will appear here automatically.</p><button class="btn primary" data-route="analyze">Analyze games</button></div><div class="section"><h2>Browse training areas</h2><div class="learnGrid">${[['⚔','Tactical motifs','Forks, pins and combinations'],['◎','Candidate moves','Compare plausible options'],['◈','Defense','Find the opponent’s threat'],['♜','Endgame tactics','Practical endings']].map(([i,t,d])=>`<button class="card learnCard"><i>${i}</i><strong>${t}</strong><p class="sub">${d}</p></button>`).join('')}</div></div></section>`;
+  const all=puzzleItems();
+  const summary=masterySummary(all,s.puzzleMastery);
+  const p=currentPuzzle();
+  if(!all.length)return `<section class="page"><div class="head"><div><h1>Puzzles</h1><p>Personalized tactical and calculation practice.</p></div></div><div class="card pad emptyState"><h3>Build your personal puzzle queue</h3><p>Analyze a few of your Chess.com or uploaded games. Critical positions from those games will appear here automatically.</p><button class="btn primary" data-route="analyze">Analyze games</button></div></section>`;
+  if(!p)return `<section class="page"><div class="head"><div><h1>Puzzles</h1><p>Spaced review from your own games.</p></div></div>${puzzleDashboard(summary)}<div class="card pad emptyState"><h3>Nothing in this queue</h3><p>${s.puzzleFilter==='due'?'You have no puzzles due right now.':'There are no puzzles in this category yet.'}</p><button class="btn" data-puzzle-filter="for_you">Return to For You</button></div></section>`;
+  ensurePuzzleState(p);
+  if(!s.puzzleLine&&!s.puzzleLineLoading)setTimeout(()=>loadPuzzleLine(p),0);
+  const queue=puzzleQueue(),rec=puzzleRecord(p);
   const result=s.puzzleResult==='correct'
-    ? `<div class="puzzleFeedback correct"><strong>Correct.</strong><span>${esc(p.bestSan||p.bestUci)} was the engine's preferred move in your original game position.</span><button class="btn primary" data-action="puzzle-next">Next position</button></div>`
-    : s.puzzleResult==='incorrect'
-      ? `<div class="puzzleFeedback incorrect"><strong>Not the best move.</strong><span>Your move ${esc(s.puzzleAttempt||'')} was legal. Reset the position and look again before revealing the answer.</span><div class="actions"><button class="btn" data-action="puzzle-retry">Try again</button><button class="btn" data-action="puzzle-next">Skip</button></div></div>`
-      : `<div class="notice">This position came from one of your analyzed games. Find the move you should have played instead.</div>`;
-  return `<section class="page"><div class="head"><div><h1>Puzzles</h1><p>Train directly on positions you mishandled in real games.</p></div><span class="sub" style="margin-left:auto">${s.puzzleIndex+1} / ${items.length}</span></div><div class="puzzleWorkspace"><div class="card boardCard"><div class="puzzleMeta"><span>vs. ${esc(p.opponent)}</span><span>Move ${p.moveNumber}</span><span>${esc(p.phase||'')}</span></div>${board(new Chess(p.fen),true,'puzzle-board')}</div><aside class="card pad puzzleSide"><div class="label">From your game</div><h2 style="margin:6px 0 4px">Find a better move</h2><p class="sub">Original move: <strong>${esc(p.playedSan||'—')}</strong> · ${esc((p.classification||'critical').replaceAll('_',' '))}</p>${result}<div class="puzzleCoachBox"><h3>Ask Coach</h3>${s.puzzleMessages.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('')}${s.puzzleCoachBusy?'<div class="notice">Coach is thinking…</div>':''}<div class="compose puzzleCompose"><input id="puzzleCoachInput" class="input" placeholder="Explain what you see or ask for help…" ${s.puzzleCoachBusy?'disabled':''}><button class="btn primary" data-action="puzzle-coach-send" ${s.puzzleCoachBusy?'disabled':''}>Send</button></div></div><div class="section"><button class="btn" data-action="puzzle-next">Next puzzle</button></div></aside></div></section>`;
+    ? `<div class="puzzleFeedback correct"><strong>Sequence complete.</strong><span>This position is scheduled for review ${formatNextReview(rec).toLowerCase()}.</span><button class="btn primary" data-action="puzzle-next">Next position</button></div>`
+    : s.puzzleResult==='continue'
+      ? `<div class="puzzleFeedback continue"><strong>Good first move.</strong><span>The opponent has replied. Find the continuation.</span></div>`
+      : s.puzzleResult==='incorrect'
+        ? `<div class="puzzleFeedback incorrect"><strong>Look again.</strong><span>${esc(s.puzzleAttempt||'That move')} was legal, but it misses the strongest continuation. This position is now in your review queue.</span><div class="actions"><button class="btn" data-action="puzzle-retry">Try again</button><button class="btn" data-action="puzzle-next">Skip</button></div></div>`
+        : `<div class="notice">${rec.attempts?`This is a spaced review. Mastery: ${rec.mastery}%.`:'This position came from one of your analyzed games.'} Find the strongest continuation.</div>`;
+  return `<section class="page"><div class="head"><div><h1>Puzzles</h1><p>Spaced repetition built from positions you actually mishandled.</p></div><span class="sub" style="margin-left:auto">${Math.min(s.puzzleIndex+1,queue.length)} / ${queue.length}</span></div>${puzzleDashboard(summary)}<div class="puzzleWorkspace"><div class="card boardCard"><div class="puzzleMeta"><span>vs. ${esc(p.opponent)}</span><span>Move ${p.moveNumber}</span><span>${esc(p.phase||'')}</span><span class="masteryChip">${rec.mastery}% mastery</span></div>${board(new Chess(s.puzzleFen||p.fen),true,'puzzle-board')}</div><aside class="card pad puzzleSide"><div class="label">From your game · ${esc(masteryStatus(rec))}</div><h2 style="margin:6px 0 4px">Find the best continuation</h2><p class="sub">Original move: <strong>${esc(p.playedSan||'—')}</strong> · ${esc((p.classification||'critical').replaceAll('_',' '))}</p><div class="masteryMeter"><div class="fill" style="width:${rec.mastery}%"></div></div><div class="masteryMeta"><span>${rec.attempts} reviews</span><span>${rec.streak} clean streak</span><span>${formatNextReview(rec)}</span></div>${result}<div class="puzzleCoachBox"><h3>Ask Coach</h3>${s.puzzleMessages.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('')}${s.puzzleCoachBusy?'<div class="notice">Coach is thinking…</div>':''}<div class="compose puzzleCompose"><input id="puzzleCoachInput" class="input" placeholder="Explain what you see or ask for a hint…" ${s.puzzleCoachBusy?'disabled':''}><button class="btn primary" data-action="puzzle-coach-send" ${s.puzzleCoachBusy?'disabled':''}>Send</button></div></div><div class="section"><button class="btn" data-action="puzzle-next">Next puzzle</button></div></aside></div></section>`;
 }
 const go=r=>{s.route=r;location.hash='#/'+r;render()};
 window.addEventListener('hashchange',()=>{s.route=location.hash.replace('#/','')||'home';render()});
@@ -269,20 +361,23 @@ function mountCmBoard(id,game,interactive=false){
     return true;
   },COLOR.white);
 }
+
 function mountPuzzleBoard(){
   const p=currentPuzzle(),el=document.getElementById('puzzle-board');if(!p||!el)return;
-  const game=new Chess(p.fen);
+  ensurePuzzleState(p);
+  const game=new Chess(s.puzzleFen||p.fen);
+  const originalTurn=new Chess(p.fen).turn();
   const turn=game.turn();
   const cm=new CmChessboard(el,{
     position:game.fen(),
-    orientation:turn==='w'?COLOR.white:COLOR.black,
+    orientation:originalTurn==='w'?COLOR.white:COLOR.black,
     responsive:true,
     assetsUrl:CM_ASSETS,
-    style:{cssClass:'blue',showCoordinates:true,animationDuration:180}
+    style:{cssClass:'blue',showCoordinates:true,aspectRatio:1,animationDuration:180}
   });
   mountedBoards.push(cm);
   cm.enableMoveInput(event=>{
-    if(s.puzzleResult)return false;
+    if(['correct','incorrect'].includes(s.puzzleResult))return false;
     if(event.type===INPUT_EVENT_TYPE.moveInputStarted){
       const piece=game.get(event.squareFrom);return !!piece&&piece.color===turn;
     }
@@ -291,10 +386,40 @@ function mountPuzzleBoard(){
       const move=legal.find(x=>x.to===event.squareTo&&(!x.promotion||x.promotion==='q'));
       if(!move)return false;
       const uci=event.squareFrom+event.squareTo+(move.promotion||'');
+      const line=s.puzzleLine?.id===p.id?s.puzzleLine.pv:[];
+      const expected=line[s.puzzleLineIndex]||(s.puzzleLineIndex===0?p.bestUci:null);
       s.puzzleAttempt=move.san;
-      s.puzzleResult=uci===p.bestUci?'correct':'incorrect';
-      setTimeout(render,120);
+      if(expected&&uci!==expected){
+        if(!s.puzzleWrongThisRound){s.puzzleWrongThisRound=true;savePuzzleOutcome(p,false)}
+        s.puzzleResult='incorrect';
+        setTimeout(render,80);
+        return false;
+      }
+      const done=game.move({from:event.squareFrom,to:event.squareTo,promotion:move.promotion||'q'});
+      if(!done)return false;
+      pendingBoardMove={type:'puzzle',puzzle:p,game,cm};
       return true;
+    }
+    if(event.type===INPUT_EVENT_TYPE.moveInputFinished&&pendingBoardMove?.type==='puzzle'){
+      const line=s.puzzleLine?.id===p.id?s.puzzleLine.pv:[];
+      const opponentUci=line[s.puzzleLineIndex+1];
+      const nextUserUci=line[s.puzzleLineIndex+2];
+      s.puzzleStep+=1;
+      pendingBoardMove=null;
+      if(opponentUci&&nextUserUci&&s.puzzleStep<2&&!game.isGameOver()){
+        try{
+          game.move({from:opponentUci.slice(0,2),to:opponentUci.slice(2,4),promotion:opponentUci[4]||'q'});
+          s.puzzleFen=game.fen();
+          s.puzzleLineIndex+=2;
+          s.puzzleResult='continue';
+          setTimeout(render,180);
+          return true;
+        }catch{}
+      }
+      s.puzzleFen=game.fen();
+      s.puzzleResult='correct';
+      savePuzzleOutcome(p,true);
+      setTimeout(render,100);
     }
     return true;
   },turn==='w'?COLOR.white:COLOR.black);
@@ -447,6 +572,6 @@ function progress(){
   return `<section class="page"><div class="head"><div><h1>My Chess</h1><p>Your goals, evidence-driven skill model, and adaptive plan.</p></div></div><div class="grid3"><div class="card summary"><div class="label">Current rapid</div><div class="value">1,438</div></div><div class="card summary"><div class="label">Next milestone</div><div class="value">1,800</div></div><div class="card summary"><div class="label">Long-term goal</div><div class="value">2,000</div></div></div><div class="progressGrid">${evidence}${stats}</div>${p?.weekly_plan?.length?`<div class="card pad section"><h3>Recommended training mix</h3><div class="quickGrid">${p.weekly_plan.map(x=>`<button class="quick" data-route="${x.destination}"><strong>${esc(x.activity)}</strong><span>${x.minutes} min · ${esc(x.focus)}</span><small class="sub">${esc(x.reason)}</small></button>`).join('')}</div><p class="sub">This plan is a recommendation, not a required sequence. You can train anywhere in the app at any time.</p></div>`:''}</section>`}
 function page(){if(s.route==='home')return home();if(s.route==='play')return play();if(s.route==='analyze')return analyze();if(s.route==='review')return review();if(s.route==='progress')return progress();if(s.route==='lesson')return lesson();if(s.route==='puzzles')return puzzles();if(s.route==='openings')return learn('openings');return learn()}
 function pop(m){s.toast=m;render();setTimeout(()=>{s.toast=null;render()},2300)}
-function bind(){document.querySelectorAll('[data-route]').forEach(e=>e.onclick=()=>go(e.dataset.route));document.querySelectorAll('[data-lesson]').forEach(e=>e.onclick=()=>openLesson(e.dataset.lesson));document.querySelectorAll('[data-opening-lesson]').forEach(e=>e.onclick=()=>openLesson('Opening study: '+decodeURIComponent(e.dataset.openingLesson)));document.querySelector('[data-action=lesson-refresh]')?.addEventListener('click',()=>{if(s.lessonTopic)loadLesson(s.lessonTopic,true)});document.querySelectorAll('[data-square]').forEach(e=>e.onclick=()=>clickSquare(e.dataset.square));document.querySelector('[data-action=new]')?.addEventListener('click',()=>{s.game=new Chess();s.sel=null;s.legal=[];s.paused=false;s.opponentBusy=false;s.messages=[{role:'coach',text:'New training game. Play naturally; I’ll intervene selectively.'}];render()});document.querySelector('[data-action=undo]')?.addEventListener('click',()=>{if(s.opponentBusy)return;s.paused=false;s.game.undo();if(s.game.turn()==='b')s.game.undo();render()});document.querySelector('[data-action=flip]')?.addEventListener('click',()=>{s.orient=s.orient==='white'?'black':'white';render()});document.querySelector('[data-action=continue-game]')?.addEventListener('click',()=>{s.paused=false;render();if(s.game.turn()==='b')makeOpponentMove()});document.querySelector('#opponentElo')?.addEventListener('change',e=>{s.opponentElo=Number(e.target.value)});document.querySelector('#coachMode')?.addEventListener('change',e=>{s.coachMode=e.target.value});document.querySelector('[data-action=send]')?.addEventListener('click',()=>askCoach(document.querySelector('#coachInput')?.value.trim()));document.querySelector('[data-action=voice-start]')?.addEventListener('click',startVoice);document.querySelector('[data-action=voice-stop]')?.addEventListener('click',stopVoice);document.querySelector('#coachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=analyze-review]')?.addEventListener('click',analyzeReviewedGame);document.querySelector('[data-action=review-send]')?.addEventListener('click',()=>askReviewCoach(document.querySelector('#reviewCoachInput')?.value.trim()));document.querySelector('#reviewCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askReviewCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=puzzle-next]')?.addEventListener('click',nextPuzzle);document.querySelector('[data-action=puzzle-retry]')?.addEventListener('click',resetPuzzle);document.querySelector('[data-action=puzzle-coach-send]')?.addEventListener('click',()=>askPuzzleCoach(document.querySelector('#puzzleCoachInput')?.value.trim()));document.querySelector('#puzzleCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askPuzzleCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=batch-analyze]')?.addEventListener('click',batchAnalyze);document.querySelector('[data-action=sync]')?.addEventListener('click',sync);document.querySelectorAll('[data-action=refresh-profile]').forEach(e=>e.addEventListener('click',refreshProfilePlan));document.querySelector('[data-action=pgn]')?.addEventListener('click',()=>{const a=parsePgn(document.querySelector('#pgn')?.value||'');if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();pop(`Imported ${a.length} PGN game${a.length===1?'':'s'}.`)});document.querySelectorAll('[data-review]').forEach(e=>e.onclick=()=>openReview(+e.dataset.review));document.querySelectorAll('[data-ply]').forEach(e=>e.onclick=()=>setPly(+e.dataset.ply));document.querySelector('[data-action=prev]')?.addEventListener('click',()=>setPly(s.ply-1));document.querySelector('[data-action=next]')?.addEventListener('click',()=>setPly(s.ply+1));const d=document.querySelector('#drop'),f=document.querySelector('#file');d?.addEventListener('click',()=>f.click());f?.addEventListener('change',async()=>{const file=f.files?.[0];if(!file)return;const a=parsePgn(await file.text());if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();render()});d?.addEventListener('dragover',e=>e.preventDefault());d?.addEventListener('drop',async e=>{e.preventDefault();const file=e.dataTransfer.files?.[0];if(!file)return;const a=parsePgn(await file.text());s.games=[...a,...s.games];save();render()})}
+function bind(){document.querySelectorAll('[data-route]').forEach(e=>e.onclick=()=>go(e.dataset.route));document.querySelectorAll('[data-lesson]').forEach(e=>e.onclick=()=>openLesson(e.dataset.lesson));document.querySelectorAll('[data-opening-lesson]').forEach(e=>e.onclick=()=>openLesson('Opening study: '+decodeURIComponent(e.dataset.openingLesson)));document.querySelector('[data-action=lesson-refresh]')?.addEventListener('click',()=>{if(s.lessonTopic)loadLesson(s.lessonTopic,true)});document.querySelectorAll('[data-square]').forEach(e=>e.onclick=()=>clickSquare(e.dataset.square));document.querySelector('[data-action=new]')?.addEventListener('click',()=>{s.game=new Chess();s.sel=null;s.legal=[];s.paused=false;s.opponentBusy=false;s.messages=[{role:'coach',text:'New training game. Play naturally; I’ll intervene selectively.'}];render()});document.querySelector('[data-action=undo]')?.addEventListener('click',()=>{if(s.opponentBusy)return;s.paused=false;s.game.undo();if(s.game.turn()==='b')s.game.undo();render()});document.querySelector('[data-action=flip]')?.addEventListener('click',()=>{s.orient=s.orient==='white'?'black':'white';render()});document.querySelector('[data-action=continue-game]')?.addEventListener('click',()=>{s.paused=false;render();if(s.game.turn()==='b')makeOpponentMove()});document.querySelector('#opponentElo')?.addEventListener('change',e=>{s.opponentElo=Number(e.target.value)});document.querySelector('#coachMode')?.addEventListener('change',e=>{s.coachMode=e.target.value});document.querySelector('[data-action=send]')?.addEventListener('click',()=>askCoach(document.querySelector('#coachInput')?.value.trim()));document.querySelector('[data-action=voice-start]')?.addEventListener('click',startVoice);document.querySelector('[data-action=voice-stop]')?.addEventListener('click',stopVoice);document.querySelector('#coachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=analyze-review]')?.addEventListener('click',analyzeReviewedGame);document.querySelector('[data-action=review-send]')?.addEventListener('click',()=>askReviewCoach(document.querySelector('#reviewCoachInput')?.value.trim()));document.querySelector('#reviewCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askReviewCoach(e.currentTarget.value.trim())});document.querySelectorAll('[data-puzzle-filter]').forEach(e=>e.addEventListener('click',()=>setPuzzleFilter(e.dataset.puzzleFilter)));document.querySelector('[data-action=puzzle-next]')?.addEventListener('click',nextPuzzle);document.querySelector('[data-action=puzzle-retry]')?.addEventListener('click',resetPuzzle);document.querySelector('[data-action=puzzle-coach-send]')?.addEventListener('click',()=>askPuzzleCoach(document.querySelector('#puzzleCoachInput')?.value.trim()));document.querySelector('#puzzleCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askPuzzleCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=batch-analyze]')?.addEventListener('click',batchAnalyze);document.querySelector('[data-action=sync]')?.addEventListener('click',sync);document.querySelectorAll('[data-action=refresh-profile]').forEach(e=>e.addEventListener('click',refreshProfilePlan));document.querySelector('[data-action=pgn]')?.addEventListener('click',()=>{const a=parsePgn(document.querySelector('#pgn')?.value||'');if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();pop(`Imported ${a.length} PGN game${a.length===1?'':'s'}.`)});document.querySelectorAll('[data-review]').forEach(e=>e.onclick=()=>openReview(+e.dataset.review));document.querySelectorAll('[data-ply]').forEach(e=>e.onclick=()=>setPly(+e.dataset.ply));document.querySelector('[data-action=prev]')?.addEventListener('click',()=>setPly(s.ply-1));document.querySelector('[data-action=next]')?.addEventListener('click',()=>setPly(s.ply+1));const d=document.querySelector('#drop'),f=document.querySelector('#file');d?.addEventListener('click',()=>f.click());f?.addEventListener('change',async()=>{const file=f.files?.[0];if(!file)return;const a=parsePgn(await file.text());if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();render()});d?.addEventListener('dragover',e=>e.preventDefault());d?.addEventListener('drop',async e=>{e.preventDefault();const file=e.dataTransfer.files?.[0];if(!file)return;const a=parsePgn(await file.text());s.games=[...a,...s.games];save();render()})}
 function render(){destroyBoards();app.innerHTML=shell(page());bind();requestAnimationFrame(()=>mountBoards())}
 render();
