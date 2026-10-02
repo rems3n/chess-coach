@@ -50,7 +50,7 @@ test('Opening Lab surfaces due repertoire reviews and opens practice board', asy
   await page.getByRole('button',{name:'Review 1 due'}).click();
   await expect(page.getByRole('heading',{name:'Opening Practice'})).toBeVisible();
   await expect(page.getByRole('button',{name:'Due (1)'})).toBeVisible();
-  await expect(page.getByText('35% mastery')).toBeVisible();
+  await expect(page.locator('.masteryChip').getByText('35% mastery',{exact:true})).toBeVisible();
 
   const board=page.locator('#opening-board svg.cm-chessboard');
   await expect(board).toBeVisible();
