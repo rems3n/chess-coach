@@ -1046,7 +1046,6 @@ function scrollLatestCoach(){
   const feed=document.querySelector('.workspace .card.coach .feed');
   if(!feed)return;
   feed.scrollTop=feed.scrollHeight;
-  feed.lastElementChild?.scrollIntoView({block:'end'});
 }
 function render(){
   destroyBoards();
