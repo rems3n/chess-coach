@@ -151,7 +151,8 @@ async function refreshProfilePlan(){
   s.profileBusy=true;render();
   try{
     const puzzleEvidence=Object.values(s.puzzleMastery).filter(x=>x.attempts).slice(-50).map(x=>({skill:'puzzle mastery',direction:(x.mastery||0)>=80?'strength':(x.mastery||0)<40?'weakness':'neutral',evidence:`Puzzle ${x.id}: ${x.correct||0}/${x.attempts||0} correct, mastery ${x.mastery||0}%, streak ${x.streak||0}`,confidence:(x.attempts||0)>=3?'medium':'low'}));
-    const d=await post('/api/profile-plan',{analyzedGames:analyzed,coachingEvidence:[...s.coachingEvidence,...puzzleEvidence],currentProfile:s.profilePlan,goals:{next:1800,longTerm:2000}});
+    const openingEvidence=Object.values(s.openingMastery).filter(x=>x.attempts).slice(-50).map(x=>({skill:'opening recall',direction:(x.mastery||0)>=80?'strength':(x.mastery||0)<40?'weakness':'neutral',evidence:`Opening position ${x.id}: ${x.correct||0}/${x.attempts||0} correct, mastery ${x.mastery||0}%, streak ${x.streak||0}`,confidence:(x.attempts||0)>=3?'medium':'low'}));
+    const d=await post('/api/profile-plan',{analyzedGames:analyzed,coachingEvidence:[...s.coachingEvidence,...puzzleEvidence,...openingEvidence],currentProfile:s.profilePlan,goals:{next:1800,longTerm:2000}});
     s.profilePlan=d;saveProfile();pushVoiceContext();pop('Player profile and training plan updated.');
   }catch(e){pop(e.message)}
   finally{s.profileBusy=false;render()}
