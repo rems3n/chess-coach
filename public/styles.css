@@ -80,3 +80,42 @@
   .openingRowActions{justify-content:flex-start}
   .openingRowActions .btn{flex:1}
 }
+
+/* Account / profile */
+.topActions{margin-left:auto;display:flex;gap:8px}
+.topActions button{margin-left:0}
+.accountNav{margin-top:auto;border:1px solid var(--border);background:#fff;border-radius:10px;padding:10px 11px;text-align:left;color:var(--text)}
+.accountNav:hover,.accountNav.active{background:var(--blue50);border-color:#bfdbfe}
+.accountNav strong{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.accountNav span{display:block;color:var(--muted);font-size:10px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.accountPage{max-width:1120px}
+.authGrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.profileGrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.profileGrid>.card:last-child{grid-column:1/-1}
+.formLabel{display:block;font-size:11px;color:var(--muted);font-weight:600;margin:14px 0 6px}
+.formLabel span{font-weight:400}
+.accountEmail{font-size:13px;color:var(--muted);padding:8px 0 2px}
+.goalGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.accountList{padding-left:18px;color:#475569;font-size:13px;line-height:1.7}
+.connectedAccount{display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0 16px;background:#f8fafc}
+.connectedAccount>div{min-width:0;flex:1}
+.connectedAccount strong{display:block;font-size:13px;margin-top:3px}
+.connectedAccount span{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+.sourceDivider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:10px;margin:15px 0}
+.sourceDivider:before,.sourceDivider:after{content:'';height:1px;background:var(--border);flex:1}
+.ratingStrip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
+.ratingStrip>div,.accountStats>div{border:1px solid var(--border);border-radius:9px;background:#f8fafc;padding:10px;text-align:center}
+.ratingStrip b,.accountStats b{display:block;font-size:18px}
+.ratingStrip span,.accountStats span{display:block;color:var(--muted);font-size:9px;margin-top:3px}
+.textButton{border:0;background:transparent;padding:0;color:var(--muted);font-size:11px;text-decoration:underline}
+.cloudStatus{display:flex;align-items:center;gap:7px;margin:12px 0}
+.statusDot{width:8px;height:8px;background:#16a34a;border-radius:50%}
+.accountStats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.accountLoading{max-width:560px;color:var(--muted)}
+@media(max-width:800px){
+  .authGrid,.profileGrid{grid-template-columns:1fr}
+  .profileGrid>.card:last-child{grid-column:auto}
+  .goalGrid{grid-template-columns:1fr}
+  .accountStats{grid-template-columns:repeat(2,1fr)}
+  .topActions button:first-child{display:none}
+}
