@@ -10,6 +10,11 @@ test.beforeEach(async ({ page }) => {
       model: 'test'
     })
   }));
+  await page.route('**/api/coach-gate', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ shouldIntervene: false, pauseRecommended: false, cpLoss: 0, classification: 'near_best', forcing: false, prompt: '' })
+  }));
   await page.route('**/api/opponent-move', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -96,6 +101,17 @@ test('Coach messages stay compact and do not inherit panel height', async ({ pag
 
 test('Takeback rewinds the student decision and the retry is sent to the coach', async ({ page }) => {
   const coachEvents = [];
+  const gateEvents = [];
+  await page.unroute('**/api/coach-gate');
+  await page.route('**/api/coach-gate', async route => {
+    const body = route.request().postDataJSON();
+    gateEvents.push(body);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ shouldIntervene: !!body.retryContext, pauseRecommended: false, cpLoss: 0, classification: 'near_best', forcing: false, prompt: body.retryContext ? 'Retry recorded.' : '' })
+    });
+  });
   await page.unroute('**/api/coach');
   await page.route('**/api/coach', async route => {
     const body = route.request().postDataJSON();
@@ -154,13 +170,12 @@ test('Takeback rewinds the student decision and the retry is sent to the coach',
   );
 
   await expect.poll(() => coachEvents.map(x => x.event)).toContain('takeback');
-  await expect.poll(() => coachEvents.map(x => x.event)).toContain('retry_move');
+  await expect.poll(() => gateEvents.some(x => x.retryContext?.originalMoveSan === 'e4')).toBe(true);
 
   const takeback = coachEvents.find(x => x.event === 'takeback');
-  const retry = coachEvents.find(x => x.event === 'retry_move');
+  const retryGate = gateEvents.find(x => x.retryContext?.originalMoveSan === 'e4');
   expect(takeback.retryContext.originalMoveSan).toBe('e4');
-  expect(retry.retryContext.originalMoveSan).toBe('e4');
-  expect(retry.lastMoveSan).toBe('d4');
+  expect(retryGate.lastMoveSan).toBe('d4');
 
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('cc_retry_history') || '[]'));
   expect(stored).toHaveLength(1);
@@ -184,6 +199,83 @@ test('Takebacks can be disabled from Play', async ({ page }) => {
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cc_allow_takebacks')))).toBe(false);
 });
 
+
+test('Normal mode never blocks play on background coaching', async ({ page }) => {
+  await page.unroute('**/api/coach-gate');
+  await page.unroute('**/api/opponent-move');
+  await page.unroute('**/api/coach');
+
+  let coachCalls = 0;
+  let opponentCalls = 0;
+
+  await page.route('**/api/coach', route => {
+    coachCalls += 1;
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        coach: { intervene:true, pause_game:true, message:'Should not be called automatically in Normal mode.', observation:'', skill_tags:[], confidence:'high', profile_updates:[] },
+        model:'test'
+      })
+    });
+  });
+
+  await page.route('**/api/coach-gate', async route => {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        shouldIntervene:true,
+        pauseRecommended:false,
+        cpLoss:180,
+        classification:'mistake',
+        forcing:false,
+        prompt:'Flagged for later review.'
+      })
+    });
+  });
+
+  await page.route('**/api/opponent-move', route => {
+    opponentCalls += 1;
+    const move = opponentCalls === 1 ? 'e7e5' : 'g8f6';
+    route.fulfill({
+      status:200,
+      contentType:'application/json',
+      body:JSON.stringify({ move, analysis:null, elo:1450 })
+    });
+  });
+
+  await page.goto('/#/play');
+
+  const started = Date.now();
+  await page.locator('#play-board').evaluate(el => {
+    el.__ground.selectSquare('e2');
+    el.__ground.selectSquare('e4');
+  });
+
+  await expect(page.locator('#play-board')).toHaveAttribute(
+    'data-fen',
+    'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+    { timeout:1000 }
+  );
+  expect(Date.now() - started).toBeLessThan(1400);
+
+  // Make the next move while the first coaching gate is still pending.
+  await page.locator('#play-board').evaluate(el => {
+    el.__ground.selectSquare('d2');
+    el.__ground.selectSquare('d4');
+  });
+
+  await expect(page.locator('#play-board')).toHaveAttribute(
+    'data-fen',
+    'rnbqkb1r/pppp1ppp/5n2/4p3/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 1 3',
+    { timeout:1000 }
+  );
+
+  expect(coachCalls).toBe(0);
+  await expect(page.getByText('Game paused for coaching discussion.')).toHaveCount(0);
+});
 
 test('Live coach keeps newest messages in view inside a fixed-height panel', async ({ page }) => {
   await page.unroute('**/api/coach');
