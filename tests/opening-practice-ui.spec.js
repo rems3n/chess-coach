@@ -52,7 +52,7 @@ test('Opening Lab surfaces due repertoire reviews and opens practice board', asy
   await expect(page.getByRole('button',{name:'Due (1)'})).toBeVisible();
   await expect(page.locator('.masteryChip').getByText('35% mastery',{exact:true})).toBeVisible();
 
-  const board=page.locator('#opening-board svg.cm-chessboard');
+  const board=page.locator('#opening-board cg-board');
   await expect(board).toBeVisible();
-  await expect(page.locator('#opening-board g.board rect.square')).toHaveCount(64);
+  await expect(page.locator('#opening-board piece')).toHaveCount(32);
 });
