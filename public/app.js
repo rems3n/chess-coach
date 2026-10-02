@@ -5,7 +5,7 @@ import { buildOpeningItems, openingQueue } from './opening-training.js';
 
 const P={wp:'♙',wn:'♘',wb:'♗',wr:'♖',wq:'♕',wk:'♔',bp:'♟',bn:'♞',bb:'♝',br:'♜',bq:'♛',bk:'♚'};
 const NAV=[['home','⌂','Home'],['play','♞','Play'],['puzzles','✣','Puzzles'],['learn','▤','Learn'],['openings','♙','Openings'],['analyze','⌕','Analyze'],['progress','▥','Progress']];
-const s={route:location.hash.replace('#/','')||'home',game:new Chess(),sel:null,legal:[],orient:'white',games:JSON.parse(localStorage.getItem('cc_games')||'[]'),user:localStorage.getItem('cc_chess_user')||'',review:null,rgame:null,ply:0,toast:null,coachBusy:false,analysisBusy:false,missingKey:false,opponentBusy:false,paused:false,opponentElo:1450,coachMode:'normal',reviewCoachBusy:false,reviewMessages:[],profilePlan:JSON.parse(localStorage.getItem('cc_profile_plan')||'null'),coachingEvidence:JSON.parse(localStorage.getItem('cc_coaching_evidence')||'[]'),profileBusy:false,batchBusy:false,voiceStatus:'off',voiceError:null,puzzleIndex:0,puzzleResult:null,puzzleAttempt:null,puzzleCoachBusy:false,puzzleMessages:[],puzzleMastery:JSON.parse(localStorage.getItem('cc_puzzle_mastery')||'{}'),puzzleFilter:'for_you',puzzleSessionSize:10,puzzleHints:0,puzzleWrongThisRound:false,puzzleStartedAt:null,puzzleLine:null,puzzleLineLoading:false,puzzleLineIndex:0,puzzleFen:null,puzzleBaseId:null,puzzleStep:0,openingMastery:JSON.parse(localStorage.getItem('cc_opening_mastery')||'{}'),openingFilter:'for_you',openingColor:'all',openingSessionSize:10,openingIndex:0,openingResult:null,openingAttempt:null,openingHints:0,openingWrongThisRound:false,openingStartedAt:null,openingBaseId:null,openingScope:'all',openingCoachBusy:false,openingCoachMessages:[],lessonTopic:null,lessonBusy:false,lessonCache:JSON.parse(localStorage.getItem('cc_lessons')||'{}'),messages:[{role:'coach',text:'Play naturally. I’ll focus on your reasoning, not narrate every engine change.'}]};
+const s={route:location.hash.replace('#/','')||'home',game:new Chess(),sel:null,legal:[],orient:'white',games:JSON.parse(localStorage.getItem('cc_games')||'[]'),user:localStorage.getItem('cc_chess_user')||'',review:null,rgame:null,ply:0,toast:null,coachBusy:false,analysisBusy:false,missingKey:false,opponentBusy:false,paused:false,opponentElo:1450,coachMode:'normal',reviewCoachBusy:false,reviewMessages:[],profilePlan:JSON.parse(localStorage.getItem('cc_profile_plan')||'null'),coachingEvidence:JSON.parse(localStorage.getItem('cc_coaching_evidence')||'[]'),profileBusy:false,batchBusy:false,voiceStatus:'off',voiceError:null,puzzleIndex:0,puzzleResult:null,puzzleAttempt:null,puzzleCoachBusy:false,puzzleMessages:[],puzzleMastery:JSON.parse(localStorage.getItem('cc_puzzle_mastery')||'{}'),puzzleFilter:'for_you',puzzleSessionSize:10,puzzleHints:0,puzzleWrongThisRound:false,puzzleStartedAt:null,puzzleLine:null,puzzleLineLoading:false,puzzleLineIndex:0,puzzleFen:null,puzzleBaseId:null,puzzleStep:0,openingMastery:JSON.parse(localStorage.getItem('cc_opening_mastery')||'{}'),openingFilter:'for_you',openingColor:'all',openingSessionSize:10,openingIndex:0,openingResult:null,openingAttempt:null,openingHints:0,openingWrongThisRound:false,openingStartedAt:null,openingBaseId:null,openingScope:'all',openingCoachBusy:false,openingCoachMessages:[],lessonTopic:null,lessonBusy:false,lessonCache:JSON.parse(localStorage.getItem('cc_lessons')||'{}'),accountUser:null,accountReady:false,accountBusy:false,chessProfile:JSON.parse(localStorage.getItem('cc_chess_profile')||'null'),chessStats:JSON.parse(localStorage.getItem('cc_chess_stats')||'null'),messages:[{role:'coach',text:'Play naturally. I’ll focus on your reasoning, not narrate every engine change.'}]};
 const app=document.querySelector('#app');
 let voicePeer=null,voiceChannel=null,voiceMedia=null,voiceAudio=null;
 let mountedBoards=[];
@@ -74,12 +74,156 @@ function stopVoice(){
 }
 
 const esc=(x='')=>String(x).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
-const save=()=>localStorage.setItem('cc_games',JSON.stringify(s.games.slice(0,250)));
-const saveEvidence=()=>localStorage.setItem('cc_coaching_evidence',JSON.stringify(s.coachingEvidence.slice(-200)));
-const saveProfile=()=>localStorage.setItem('cc_profile_plan',JSON.stringify(s.profilePlan));
-const saveLessons=()=>localStorage.setItem('cc_lessons',JSON.stringify(s.lessonCache));
-const savePuzzleMastery=()=>localStorage.setItem('cc_puzzle_mastery',JSON.stringify(s.puzzleMastery));
-const saveOpeningMastery=()=>localStorage.setItem('cc_opening_mastery',JSON.stringify(s.openingMastery));
+let cloudSaveTimer=null;
+function scheduleCloudSave(){
+  if(!s.accountUser)return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer=setTimeout(()=>saveCloudState().catch(err=>console.warn('Cloud save failed',err)),650);
+}
+const save=()=>{localStorage.setItem('cc_games',JSON.stringify(s.games.slice(0,250)));scheduleCloudSave()};
+const saveEvidence=()=>{localStorage.setItem('cc_coaching_evidence',JSON.stringify(s.coachingEvidence.slice(-200)));scheduleCloudSave()};
+const saveProfile=()=>{localStorage.setItem('cc_profile_plan',JSON.stringify(s.profilePlan));scheduleCloudSave()};
+const saveLessons=()=>{localStorage.setItem('cc_lessons',JSON.stringify(s.lessonCache));scheduleCloudSave()};
+const savePuzzleMastery=()=>{localStorage.setItem('cc_puzzle_mastery',JSON.stringify(s.puzzleMastery));scheduleCloudSave()};
+const saveOpeningMastery=()=>{localStorage.setItem('cc_opening_mastery',JSON.stringify(s.openingMastery));scheduleCloudSave()};
+function saveChessCache(){
+  localStorage.setItem('cc_chess_user',s.user||'');
+  localStorage.setItem('cc_chess_profile',JSON.stringify(s.chessProfile));
+  localStorage.setItem('cc_chess_stats',JSON.stringify(s.chessStats));
+  scheduleCloudSave();
+}
+function cloudPayload(){
+  return {
+    games:s.games.slice(0,250),
+    profilePlan:s.profilePlan,
+    coachingEvidence:s.coachingEvidence.slice(-200),
+    puzzleMastery:s.puzzleMastery,
+    openingMastery:s.openingMastery,
+    lessonCache:s.lessonCache,
+    chessProfile:s.chessProfile,
+    chessStats:s.chessStats,
+    settings:{opponentElo:s.opponentElo,coachMode:s.coachMode}
+  };
+}
+function hasLocalProgress(){
+  return !!(s.games.length||s.profilePlan||s.coachingEvidence.length||Object.keys(s.puzzleMastery).length||Object.keys(s.openingMastery).length||Object.keys(s.lessonCache).length);
+}
+function persistLocalSnapshot(){
+  localStorage.setItem('cc_games',JSON.stringify(s.games.slice(0,250)));
+  localStorage.setItem('cc_profile_plan',JSON.stringify(s.profilePlan));
+  localStorage.setItem('cc_coaching_evidence',JSON.stringify(s.coachingEvidence.slice(-200)));
+  localStorage.setItem('cc_puzzle_mastery',JSON.stringify(s.puzzleMastery));
+  localStorage.setItem('cc_opening_mastery',JSON.stringify(s.openingMastery));
+  localStorage.setItem('cc_lessons',JSON.stringify(s.lessonCache));
+  localStorage.setItem('cc_chess_user',s.user||'');
+  localStorage.setItem('cc_chess_profile',JSON.stringify(s.chessProfile));
+  localStorage.setItem('cc_chess_stats',JSON.stringify(s.chessStats));
+}
+function applyCloudState(state){
+  if(!state||typeof state!=='object')return;
+  if(Array.isArray(state.games))s.games=state.games;
+  if('profilePlan' in state)s.profilePlan=state.profilePlan;
+  if(Array.isArray(state.coachingEvidence))s.coachingEvidence=state.coachingEvidence;
+  if(state.puzzleMastery&&typeof state.puzzleMastery==='object')s.puzzleMastery=state.puzzleMastery;
+  if(state.openingMastery&&typeof state.openingMastery==='object')s.openingMastery=state.openingMastery;
+  if(state.lessonCache&&typeof state.lessonCache==='object')s.lessonCache=state.lessonCache;
+  if('chessProfile' in state)s.chessProfile=state.chessProfile;
+  if('chessStats' in state)s.chessStats=state.chessStats;
+  if(state.settings){
+    if(state.settings.opponentElo)s.opponentElo=Number(state.settings.opponentElo);
+    if(state.settings.coachMode)s.coachMode=state.settings.coachMode;
+  }
+  s.user=s.accountUser?.chesscom_username||s.user||'';
+  persistLocalSnapshot();
+}
+async function saveCloudState(){
+  if(!s.accountUser)return;
+  const r=await fetch('/api/account/state',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({state:cloudPayload()})});
+  if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Account save failed');
+}
+async function loadCloudState(){
+  if(!s.accountUser)return;
+  const r=await fetch('/api/account/state');
+  const d=await r.json();
+  if(!r.ok)throw new Error(d.error||'Account state failed');
+  const remote=d.state||{};
+  if(Object.keys(remote).length===0&&hasLocalProgress())await saveCloudState();
+  else if(Object.keys(remote).length)applyCloudState(remote);
+}
+async function bootstrapAccount(){
+  try{
+    const r=await fetch('/api/auth/me');
+    const d=await r.json();
+    if(r.ok&&d.user){
+      s.accountUser=d.user;
+      s.user=d.user.chesscom_username||s.user||'';
+      await loadCloudState();
+    }
+  }catch(e){console.warn('Account bootstrap failed',e)}
+  finally{s.accountReady=true;render()}
+}
+function currentRapidRating(){
+  return Number(s.chessStats?.chess_rapid?.last?.rating)||Number(s.games.find(g=>g.timeClass==='rapid'&&g.rating)?.rating)||1438;
+}
+function nextGoal(){return Number(s.accountUser?.goals?.next)||1800}
+function longGoal(){return Number(s.accountUser?.goals?.longTerm)||2000}
+function studentName(){return s.accountUser?.display_name||s.chessProfile?.name||'Chris'}
+async function authSubmit(mode){
+  if(s.accountBusy)return;
+  const email=document.querySelector('#authEmail')?.value.trim();
+  const password=document.querySelector('#authPassword')?.value||'';
+  const displayName=document.querySelector('#authName')?.value.trim()||'';
+  if(!email||!password)return pop('Enter your email and password.');
+  s.accountBusy=true;render();
+  try{
+    const d=await post('/api/auth/'+mode,{email,password,displayName});
+    s.accountUser=d.user;
+    s.user=d.user.chesscom_username||s.user||'';
+    await loadCloudState();
+    pop(mode==='register'?'Account created. Your progress is now saved.':'Signed in. Progress synced.');
+  }catch(e){pop(e.message)}
+  finally{s.accountBusy=false;render()}
+}
+async function signOut(){
+  try{await post('/api/auth/logout',{})}catch{}
+  s.accountUser=null;s.accountReady=true;render();pop('Signed out. Local progress remains on this device.');
+}
+async function saveAccountProfile(){
+  if(!s.accountUser||s.accountBusy)return;
+  const displayName=document.querySelector('#profileName')?.value.trim()||'';
+  const next=Number(document.querySelector('#goalNext')?.value)||1800;
+  const longTerm=Number(document.querySelector('#goalLong')?.value)||2000;
+  s.accountBusy=true;render();
+  try{
+    const d=await fetch('/api/account/profile',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({displayName,goals:{next,longTerm}})}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Profile update failed');return d});
+    s.accountUser=d.user;pop('Profile updated.');
+  }catch(e){pop(e.message)}
+  finally{s.accountBusy=false;render()}
+}
+async function connectChessCom(){
+  if(!s.accountUser)return go('profile');
+  const username=document.querySelector('#profileChessUser')?.value.trim()||s.accountUser.chesscom_username||'';
+  if(!username)return pop('Enter your Chess.com username.');
+  s.accountBusy=true;render();
+  try{
+    const d=await post('/api/account/chesscom',{username});
+    s.accountUser=d.user;s.user=d.user.chesscom_username||username;
+    s.chessProfile=d.profile;s.chessStats=d.stats;
+    const seen=new Set(s.games.map(g=>g.id));
+    s.games=[...d.games.filter(g=>!seen.has(g.id)),...s.games];
+    save();saveChessCache();
+    pop(`Chess.com connected. Imported ${d.games.length} recent games.`);
+  }catch(e){pop(e.message)}
+  finally{s.accountBusy=false;render()}
+}
+async function disconnectChessCom(){
+  if(!s.accountUser)return;
+  try{
+    const r=await fetch('/api/account/profile',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({chesscomUsername:null})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||'Disconnect failed');
+    s.accountUser=d.user;s.user='';s.chessProfile=null;s.chessStats=null;saveChessCache();render();pop('Chess.com disconnected.');
+  }catch(e){pop(e.message)}
+}
 function captureEvidence(items=[]){if(!items.length)return;s.coachingEvidence.push(...items.map(x=>({...x,at:Date.now()})));saveEvidence()}
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok){const e=new Error(d.error||'Request failed');e.data=d;throw e}return d}
 function recentMoves(game=s.game){return game.history().slice(-20)}
