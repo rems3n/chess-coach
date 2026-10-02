@@ -68,3 +68,14 @@
 .sessionSize{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}
 .sessionSize .miniSelect{margin-left:0}
 @media(max-width:740px){.puzzleToolbar{align-items:flex-start;flex-direction:column}.sessionSize{width:100%;justify-content:flex-end}}
+
+.openingSummary{margin-bottom:14px}
+.openingPrimaryActions{margin-top:14px}
+.openingRow{grid-template-columns:minmax(180px,1fr) 58px 72px 58px minmax(150px,auto)}
+.openingRowActions{display:flex;justify-content:flex-end;gap:6px}
+.openingPracticeDash{margin-bottom:16px}
+@media(max-width:740px){
+  .openingRow{grid-template-columns:1fr}
+  .openingRowActions{justify-content:flex-start}
+  .openingRowActions .btn{flex:1}
+}
