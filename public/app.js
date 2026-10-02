@@ -398,14 +398,15 @@ function cgConfig(game,{orientation=s.orient,interactive=false,color=null,onMove
       free:false,
       color:color||turn,
       dests:cgDests(game),
-      showDests:true
-    }:{free:false,color:undefined,dests:new Map(),showDests:false},
-    events:interactive?{move:(orig,dest,capturedPiece)=>onMove?.(orig,dest,{capturedPiece})}:{}
+      showDests:true,
+      events:{after:(orig,dest,metadata)=>onMove?.(orig,dest,metadata)}
+    }:{free:false,color:undefined,dests:new Map(),showDests:false}
   };
 }
 function mountGround(id,game,options={}){
   const el=document.getElementById(id);if(!el||!game)return null;
   const ground=Chessground(el,cgConfig(game,options));
+  el.__ground=ground;
   mountedBoards.push(ground);
   return ground;
 }
