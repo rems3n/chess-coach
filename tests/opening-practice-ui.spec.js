@@ -54,5 +54,5 @@ test('Opening Lab surfaces due repertoire reviews and opens practice board', asy
 
   const board=page.locator('#opening-board cg-board');
   await expect(board).toBeVisible();
-  await expect(page.locator('#opening-board piece')).toHaveCount(32);
+  await expect(page.locator('#opening-board piece:not(.ghost)')).toHaveCount(32);
 });
