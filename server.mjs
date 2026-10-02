@@ -7,6 +7,8 @@ import { analyzeGame } from './lib/game-analysis.mjs';
 import { coachResponse } from './lib/coach.mjs';
 import { generateProfilePlan } from './lib/profile.mjs';
 import { generateLesson } from './lib/lesson.mjs';
+import { initDb } from './lib/db.mjs';
+import { register, login, logout, currentUser, requireUser, getState, putState, updateProfile, clearSessionCookie } from './lib/auth.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -83,6 +85,75 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     if (url.pathname === '/health') return json(res, 200, { ok: true, service: 'chess-coach-mvp' });
+    if (url.pathname === '/api/auth/me' && req.method === 'GET') {
+      try {
+        const user = await currentUser(req);
+        return json(res, 200, { user });
+      } catch (err) { return json(res, 500, { error: err.message || 'Account lookup failed' }); }
+    }
+    if (url.pathname === '/api/auth/register' && req.method === 'POST') {
+      try {
+        const body = await readJson(req, 100_000);
+        const result = await register(req, {
+          email: body.email,
+          password: body.password,
+          displayName: body.displayName
+        });
+        res.setHeader('Set-Cookie', result.cookie);
+        return json(res, 201, { user: result.user });
+      } catch (err) { return json(res, 400, { error: err.message || 'Registration failed' }); }
+    }
+    if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+      try {
+        const body = await readJson(req, 100_000);
+        const result = await login(req, { email: body.email, password: body.password });
+        res.setHeader('Set-Cookie', result.cookie);
+        return json(res, 200, { user: result.user });
+      } catch (err) { return json(res, 401, { error: err.message || 'Login failed' }); }
+    }
+    if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
+      try { await logout(req); } catch {}
+      res.setHeader('Set-Cookie', clearSessionCookie(req));
+      return json(res, 200, { ok: true });
+    }
+    if (url.pathname === '/api/account/state' && req.method === 'GET') {
+      try {
+        const user = await requireUser(req);
+        const row = await getState(user.id);
+        return json(res, 200, { state: row.state || {}, updated_at: row.updated_at || null });
+      } catch (err) { return json(res, err.statusCode || 500, { error: err.message || 'State lookup failed' }); }
+    }
+    if (url.pathname === '/api/account/state' && req.method === 'PUT') {
+      try {
+        const user = await requireUser(req);
+        const body = await readJson(req, 8_000_000);
+        const row = await putState(user.id, body.state || {});
+        return json(res, 200, { ok: true, updated_at: row.updated_at });
+      } catch (err) { return json(res, err.statusCode || 500, { error: err.message || 'State save failed' }); }
+    }
+    if (url.pathname === '/api/account/profile' && req.method === 'PATCH') {
+      try {
+        const user = await requireUser(req);
+        const body = await readJson(req, 100_000);
+        const updated = await updateProfile(user.id, {
+          displayName: body.displayName,
+          goals: body.goals,
+          chesscomUsername: body.chesscomUsername
+        });
+        return json(res, 200, { user: updated });
+      } catch (err) { return json(res, err.statusCode || 400, { error: err.message || 'Profile update failed' }); }
+    }
+    if (url.pathname === '/api/account/chesscom' && req.method === 'POST') {
+      try {
+        const user = await requireUser(req);
+        const body = await readJson(req, 100_000);
+        const username = String(body.username || user.chesscom_username || '').trim();
+        if (!username) throw new Error('Enter a Chess.com username');
+        const imported = await chessComImport(username);
+        const updated = await updateProfile(user.id, { chesscomUsername: username });
+        return json(res, 200, { user: updated, ...imported });
+      } catch (err) { return json(res, err.statusCode || 400, { error: err.message || 'Chess.com connection failed' }); }
+    }
     if (url.pathname === '/api/chesscom') {
       const username = url.searchParams.get('username') || '';
       try { return json(res, 200, await chessComImport(username)); }
@@ -249,19 +320,33 @@ ${JSON.stringify(context)}
   }
 });
 
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Chess Coach listening on ${port}`);
-  analyzeFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', { depth: 6, multiPv: 1 })
-    .then(r => console.log(`Stockfish self-test OK: ${r.bestmove || 'analysis returned'}`))
-    .catch(err => console.error('Stockfish self-test failed:', err.message));
-  if (process.env.OPENAI_API_KEY) {
-    fetch('https://api.openai.com/v1/responses',{
-      method:'POST',
-      headers:{'content-type':'application/json',authorization:`Bearer ${process.env.OPENAI_API_KEY}`},
-      body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5.6-terra',input:'Reply with OK.',max_output_tokens:16,store:false})
-    }).then(async r=>{
-      if(r.ok) console.log('OpenAI API self-test OK');
-      else console.error('OpenAI API self-test failed:',r.status,(await r.text()).slice(0,300));
-    }).catch(err=>console.error('OpenAI API self-test failed:',err.message));
-  } else console.warn('OpenAI API key not configured');
+async function startServer() {
+  if (process.env.DATABASE_URL) {
+    await initDb();
+    console.log('Account database ready');
+  } else {
+    console.warn('DATABASE_URL not configured; account features disabled');
+  }
+
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`Chess Coach listening on ${port}`);
+    analyzeFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', { depth: 6, multiPv: 1 })
+      .then(r => console.log(`Stockfish self-test OK: ${r.bestmove || 'analysis returned'}`))
+      .catch(err => console.error('Stockfish self-test failed:', err.message));
+    if (process.env.OPENAI_API_KEY) {
+      fetch('https://api.openai.com/v1/responses',{
+        method:'POST',
+        headers:{'content-type':'application/json',authorization:`Bearer ${process.env.OPENAI_API_KEY}`},
+        body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5.6-terra',input:'Reply with OK.',max_output_tokens:16,store:false})
+      }).then(async r=>{
+        if(r.ok) console.log('OpenAI API self-test OK');
+        else console.error('OpenAI API self-test failed:',r.status,(await r.text()).slice(0,300));
+      }).catch(err=>console.error('OpenAI API self-test failed:',err.message));
+    } else console.warn('OpenAI API key not configured');
+  });
+}
+
+startServer().catch(err => {
+  console.error('Server startup failed:', err);
+  process.exit(1);
 });
