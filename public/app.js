@@ -581,6 +581,119 @@ function openingStats(){
     return {...x,common,avgOpp};
   }).sort((a,b)=>b.games-a.games);
 }
+function openingNameMap(){
+  const map=new Map();
+  for(const g of s.games){
+    if(!g.id||!g.pgn)continue;
+    try{
+      const game=new Chess();game.loadPgn(g.pgn,{strict:false});
+      map.set(g.id,openingName(game.header()));
+    }catch{}
+  }
+  return map;
+}
+function openingTrainingItems(){
+  const names=openingNameMap();
+  return buildOpeningItems(s.games).map(x=>({...x,opening:names.get(x.games?.[0])||'Opening position'}));
+}
+function openingTrainingQueue(){
+  let items=openingTrainingItems();
+  if(s.openingScope!=='all')items=items.filter(x=>x.opening===s.openingScope);
+  return openingQueue(items,s.openingMastery,{filter:s.openingFilter,color:s.openingColor,limit:s.openingSessionSize});
+}
+function currentOpeningItem(){
+  const q=openingTrainingQueue();
+  return q.length?q[s.openingIndex%q.length]:null;
+}
+function openingRecord(item){
+  return item?{...emptyMastery(item.id),...(s.openingMastery[item.id]||{}),id:item.id}:null;
+}
+function ensureOpeningState(item){
+  if(!item)return;
+  if(s.openingBaseId!==item.id){
+    s.openingBaseId=item.id;s.openingResult=null;s.openingAttempt=null;s.openingHints=0;
+    s.openingWrongThisRound=false;s.openingStartedAt=Date.now();s.openingCoachMessages=[];
+  }
+}
+function saveOpeningOutcome(item,correct){
+  if(!item)return;
+  const existing=openingRecord(item);
+  s.openingMastery[item.id]=recordMasteryAttempt(existing,{
+    correct,firstTry:correct&&!s.openingWrongThisRound&&s.openingHints===0,
+    hints:s.openingHints,responseMs:Math.max(0,Date.now()-(s.openingStartedAt||Date.now()))
+  });
+  saveOpeningMastery();
+}
+function startOpeningPractice({scope='all',color='all',filter='for_you'}={}){
+  s.openingScope=scope;s.openingColor=color;s.openingFilter=filter;s.openingIndex=0;s.openingBaseId=null;
+  ensureOpeningState(currentOpeningItem());s.route='opening-practice';location.hash='#/opening-practice';render();
+}
+function nextOpeningItem(){
+  const previous=currentOpeningItem()?.id,q=openingTrainingQueue();
+  if(!q.length){s.openingIndex=0;s.openingBaseId=null;render();return}
+  if(['for_you','due','new'].includes(s.openingFilter)){s.openingIndex=0;if(q[0]?.id===previous&&q.length>1)s.openingIndex=1}
+  else s.openingIndex=(s.openingIndex+1)%q.length;
+  s.openingBaseId=null;ensureOpeningState(currentOpeningItem());render();
+}
+function retryOpeningItem(){s.openingResult=null;s.openingAttempt=null;render()}
+function setOpeningFilter(filter){s.openingFilter=filter;s.openingIndex=0;s.openingBaseId=null;ensureOpeningState(currentOpeningItem());render()}
+function setOpeningColor(color){s.openingColor=color;s.openingIndex=0;s.openingBaseId=null;ensureOpeningState(currentOpeningItem());render()}
+function setOpeningSessionSize(size){s.openingSessionSize=size==='all'?'all':Number(size);s.openingIndex=0;s.openingBaseId=null;ensureOpeningState(currentOpeningItem());render()}
+async function askOpeningCoach(text){
+  const item=currentOpeningItem();if(!item||!text||s.openingCoachBusy)return;
+  s.openingHints+=1;s.openingCoachMessages.push({role:'user',text});s.openingCoachBusy=true;render();
+  try{
+    const d=await post('/api/coach',{event:'opening_practice',mode:'guided',fen:item.fen,currentFen:item.fen,messages:s.openingCoachMessages,studentProfile:s.profilePlan,reviewContext:{opening:{name:item.opening,color:item.color,moveNumber:item.moveNumber,expectedMove:item.expectedSan,corrected:item.corrected,originalMove:item.sourceMove,classification:item.classification,mastery:openingRecord(item),currentAttempt:s.openingAttempt,currentResult:s.openingResult}}});
+    if(d.coach?.message)s.openingCoachMessages.push({role:'coach',text:d.coach.message});
+    captureEvidence(d.coach?.profile_updates||[]);
+  }catch(e){s.openingCoachMessages.push({role:'coach',text:`Coach error: ${e.message}`})}
+  finally{s.openingCoachBusy=false;render()}
+}
+function openingPracticeDashboard(summary){
+  const tabs=[['for_you','For You'],['due',`Due (${summary.due})`],['new',`New (${summary.new})`],['mastered',`Mastered (${summary.mastered})`],['all','All']];
+  return `<div class="puzzleDashboard card openingPracticeDash"><div class="puzzleStats"><div><b>${summary.due}</b><span>due now</span></div><div><b>${summary.learning}</b><span>learning</span></div><div><b>${summary.mastered}</b><span>mastered</span></div><div><b>${summary.total}</b><span>positions</span></div></div><div class="puzzleToolbar"><div class="puzzleTabs">${tabs.map(([v,l])=>`<button class="${s.openingFilter===v?'active':'}" data-opening-filter="${v}">${l}</button>`).join('')}</div><label class="sessionSize">Side <select class="select miniSelect" id="openingColor"><option value="all" ${s.openingColor==='all'?'selected':''}>Both</option><option value="white" ${s.openingColor==='white'?'selected':''}>White</option><option value="black" ${s.openingColor==='black'?'selected':''}>Black</option></select></label><label class="sessionSize">Session <select class="select miniSelect" id="openingSessionSize">${[5,10,20,'all'].map(v=>`<option value="${v}" ${String(s.openingSessionSize)===String(v)?'selected':''}>${v==='all'?'All':v}</option>`).join('')}</select></label></div></div>`;
+}
+function openingPractice(){
+  const all=openingTrainingItems();
+  const scoped=s.openingScope==='all'?all:all.filter(x=>x.opening===s.openingScope);
+  const colorScoped=s.openingColor==='all'?scoped:scoped.filter(x=>x.color===s.openingColor);
+  const summary=masterySummary(colorScoped,s.openingMastery),item=currentOpeningItem();
+  if(!all.length)return `<section class="page"><div class="head"><div><h1>Opening Practice</h1><p>Move recall from analyzed games.</p></div></div><div class="card pad emptyState"><h3>Analyze games first</h3><p>Opening Practice only trains positions we have analyzed, so it does not reinforce unsound moves from your history.</p><button class="btn primary" data-route="analyze">Analyze games</button></div></section>`;
+  if(!item)return `<section class="page"><div class="head"><div><h1>Opening Practice</h1><p>${esc(s.openingScope==='all'?'Your analyzed repertoire':s.openingScope)}</p></div></div>${openingPracticeDashboard(summary)}<div class="card pad emptyState"><h3>Nothing in this queue</h3><p>${s.openingFilter==='due'?'No opening positions are due right now.':'No positions match the current filters.'}</p><button class="btn" data-opening-filter="for_you">Return to For You</button></div></section>`;
+  ensureOpeningState(item);
+  const rec=openingRecord(item),q=openingTrainingQueue(),source=item.corrected?'Correction from an analyzed game':'Move already supported by your analyzed play';
+  const result=s.openingResult==='correct'
+    ? `<div class="puzzleFeedback correct"><strong>Correct.</strong><span>${esc(item.expectedSan||item.expectedUci)} is scheduled ${formatNextReview(rec).toLowerCase()}.</span><button class="btn primary" data-action="opening-next">Next position</button></div>`
+    : s.openingResult==='incorrect'
+      ? `<div class="puzzleFeedback incorrect"><strong>Not this move.</strong><span>${esc(s.openingAttempt||'That move')} was legal, but it is not the move this repertoire position is training.</span><div class="actions"><button class="btn" data-action="opening-retry">Try again</button><button class="btn" data-action="opening-next">Skip</button></div></div>`
+      : `<div class="notice">${rec.attempts?`Spaced review · ${rec.mastery}% mastery.`:'New repertoire position.'} Play the move you want to remember here.</div>`;
+  return `<section class="page"><div class="head"><div><h1>Opening Practice</h1><p>${esc(item.opening)}</p></div><span class="sub" style="margin-left:auto">${Math.min(s.openingIndex+1,q.length)} / ${q.length}</span></div>${openingPracticeDashboard(summary)}<div class="puzzleWorkspace"><div class="card boardCard"><div class="puzzleMeta"><span>${item.color==='white'?'White':'Black'} repertoire</span><span>Move ${item.moveNumber}</span><span>${esc(source)}</span><span class="masteryChip">${rec.mastery}% mastery</span></div>${board(new Chess(item.fen),true,'opening-board')}</div><aside class="card pad puzzleSide"><div class="label">${esc(masteryStatus(rec))}</div><h2 style="margin:6px 0 4px">What do you play?</h2><p class="sub">${item.corrected?'This position was added because analysis found a meaningful opening mistake.':'This position reinforces an opening move that held up in analysis.'}</p><div class="masteryMeter"><div class="fill" style="width:${rec.mastery}%"></div></div><div class="masteryMeta"><span>${rec.attempts} reviews</span><span>${rec.streak} clean streak</span><span>${formatNextReview(rec)}</span></div>${result}<div class="puzzleCoachBox"><h3>Ask Coach</h3>${s.openingCoachMessages.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('')}${s.openingCoachBusy?'<div class="notice">Coach is thinking…</div>':''}<div class="compose puzzleCompose"><input id="openingCoachInput" class="input" placeholder="Ask why, explain your idea, or request a hint…" ${s.openingCoachBusy?'disabled':''}><button class="btn primary" data-action="opening-coach-send" ${s.openingCoachBusy?'disabled':''}>Send</button></div></div><div class="section actions"><button class="btn" data-opening-lesson="${encodeURIComponent(item.opening)}">Study ideas</button><button class="btn" data-action="opening-next">Next position</button></div></aside></div></section>`;
+}
+function mountOpeningBoard(){
+  const item=currentOpeningItem(),el=document.getElementById('opening-board');if(!item||!el)return;
+  ensureOpeningState(item);
+  const game=new Chess(item.fen),turn=game.turn();
+  const cm=new CmChessboard(el,{position:game.fen(),orientation:item.color==='black'?COLOR.black:COLOR.white,responsive:true,assetsUrl:CM_ASSETS,style:{cssClass:'blue',showCoordinates:true,aspectRatio:1,animationDuration:180}});
+  mountedBoards.push(cm);
+  cm.enableMoveInput(event=>{
+    if(['correct','incorrect'].includes(s.openingResult))return false;
+    if(event.type===INPUT_EVENT_TYPE.moveInputStarted){const piece=game.get(event.squareFrom);return !!piece&&piece.color===turn}
+    if(event.type===INPUT_EVENT_TYPE.validateMoveInput){
+      const legal=game.moves({square:event.squareFrom,verbose:true});
+      const move=legal.find(x=>x.to===event.squareTo&&(!x.promotion||x.promotion==='q'));
+      if(!move)return false;
+      const uci=event.squareFrom+event.squareTo+(move.promotion||'');s.openingAttempt=move.san;
+      if(uci!==item.expectedUci){
+        if(!s.openingWrongThisRound){s.openingWrongThisRound=true;saveOpeningOutcome(item,false)}
+        s.openingResult='incorrect';setTimeout(render,80);return false;
+      }
+      game.move({from:event.squareFrom,to:event.squareTo,promotion:move.promotion||'q'});
+      s.openingResult='correct';saveOpeningOutcome(item,true);setTimeout(render,100);return true;
+    }
+    return true;
+  },turn==='w'?COLOR.white:COLOR.black);
+}
+
 function openingRow(x){
   const encoded=encodeURIComponent(x.name);
   return `<div class="openingRow"><div><strong>${esc(x.name)}</strong><small>${esc(x.common||'No line available')}</small></div><div class="openingStat"><b>${x.games}</b><span>games</span></div><div class="openingStat"><b>${x.wins}-${x.draws}-${x.losses}</b><span>W-D-L</span></div><div class="openingStat"><b>${x.avgOpp||'—'}</b><span>avg opp.</span></div><button class="btn" data-opening-lesson="${encoded}">Study ideas</button></div>`;
