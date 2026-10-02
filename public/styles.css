@@ -134,3 +134,15 @@
 .switch>span:before{content:'';position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;box-shadow:0 1px 2px #0f172a33;transition:.15s}
 .switch input:checked+span{background:var(--blue)}
 .switch input:checked+span:before{transform:translateX(16px)}
+
+/* Keep live coach chat aligned with the board */
+.workspace>.card.coach{height:min(760px,calc(100vh - 92px));min-height:560px;max-height:760px;overflow:hidden}
+.workspace>.card.coach .feed{min-height:0;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth}
+.workspace>.card.coach .compose{flex:0 0 auto;background:#fff}
+.workspace>.card.coach .coachHead{flex:0 0 auto;background:#fff;z-index:1}
+@media(max-width:1180px){
+  .workspace>.card.coach{height:560px;min-height:420px;max-height:560px}
+}
+@media(max-width:740px){
+  .workspace>.card.coach{height:52vh;min-height:360px;max-height:520px}
+}
