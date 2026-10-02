@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeFen } from './lib/stockfish.mjs';
+import { Chess } from 'chess.js';
 import { analyzeGame } from './lib/game-analysis.mjs';
 import { coachResponse } from './lib/coach.mjs';
 import { generateProfilePlan } from './lib/profile.mjs';
@@ -285,7 +286,7 @@ ${JSON.stringify(context)}
         const bestUci = best?.pv?.[0] || null;
         const bestSan = bestUci ? (() => {
           try {
-            const game = new (await import('chess.js')).Chess(body.fenBefore);
+            const game = new Chess(body.fenBefore);
             return game.move({from:bestUci.slice(0,2),to:bestUci.slice(2,4),promotion:bestUci[4]||'q'})?.san || null;
           } catch { return null; }
         })() : null;
