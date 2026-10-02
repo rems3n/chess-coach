@@ -47,7 +47,7 @@ test('personal puzzle mastery dashboard restores due review state', async ({ pag
 
   const board=page.locator('#puzzle-board cg-board');
   await expect(board).toBeVisible();
-  await expect(page.locator('#puzzle-board piece')).toHaveCount(32);
+  await expect(page.locator('#puzzle-board piece:not(.ghost)')).toHaveCount(32);
 
   await page.goto('/#/home');
   await expect(page.getByText('Reviews due')).toBeVisible();
