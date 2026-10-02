@@ -5,7 +5,7 @@ import { buildOpeningItems, openingQueue } from './opening-training.js';
 
 const P={wp:'♙',wn:'♘',wb:'♗',wr:'♖',wq:'♕',wk:'♔',bp:'♟',bn:'♞',bb:'♝',br:'♜',bq:'♛',bk:'♚'};
 const NAV=[['home','⌂','Home'],['play','♞','Play'],['puzzles','✣','Puzzles'],['learn','▤','Learn'],['openings','♙','Openings'],['analyze','⌕','Analyze'],['progress','▥','Progress']];
-const s={route:location.hash.replace('#/','')||'home',game:new Chess(),sel:null,legal:[],orient:'white',games:JSON.parse(localStorage.getItem('cc_games')||'[]'),user:localStorage.getItem('cc_chess_user')||'',review:null,rgame:null,ply:0,toast:null,coachBusy:false,analysisBusy:false,missingKey:false,opponentBusy:false,paused:false,opponentElo:1450,coachMode:'normal',reviewCoachBusy:false,reviewMessages:[],profilePlan:JSON.parse(localStorage.getItem('cc_profile_plan')||'null'),coachingEvidence:JSON.parse(localStorage.getItem('cc_coaching_evidence')||'[]'),profileBusy:false,batchBusy:false,voiceStatus:'off',voiceError:null,puzzleIndex:0,puzzleResult:null,puzzleAttempt:null,puzzleCoachBusy:false,puzzleMessages:[],puzzleMastery:JSON.parse(localStorage.getItem('cc_puzzle_mastery')||'{}'),puzzleFilter:'for_you',puzzleSessionSize:10,puzzleHints:0,puzzleWrongThisRound:false,puzzleStartedAt:null,puzzleLine:null,puzzleLineLoading:false,puzzleLineIndex:0,puzzleFen:null,puzzleBaseId:null,puzzleStep:0,openingMastery:JSON.parse(localStorage.getItem('cc_opening_mastery')||'{}'),openingFilter:'for_you',openingColor:'all',openingSessionSize:10,openingIndex:0,openingResult:null,openingAttempt:null,openingHints:0,openingWrongThisRound:false,openingStartedAt:null,openingBaseId:null,openingScope:'all',openingCoachBusy:false,openingCoachMessages:[],lessonTopic:null,lessonBusy:false,lessonCache:JSON.parse(localStorage.getItem('cc_lessons')||'{}'),accountUser:null,accountReady:false,accountBusy:false,chessProfile:JSON.parse(localStorage.getItem('cc_chess_profile')||'null'),chessStats:JSON.parse(localStorage.getItem('cc_chess_stats')||'null'),messages:[{role:'coach',text:'Play naturally. I’ll focus on your reasoning, not narrate every engine change.'}]};
+const s={route:location.hash.replace('#/','')||'home',game:new Chess(),sel:null,legal:[],orient:'white',games:JSON.parse(localStorage.getItem('cc_games')||'[]'),user:localStorage.getItem('cc_chess_user')||'',review:null,rgame:null,ply:0,toast:null,coachBusy:false,analysisBusy:false,missingKey:false,opponentBusy:false,paused:false,opponentElo:1450,coachMode:'normal',reviewCoachBusy:false,reviewMessages:[],profilePlan:JSON.parse(localStorage.getItem('cc_profile_plan')||'null'),coachingEvidence:JSON.parse(localStorage.getItem('cc_coaching_evidence')||'[]'),profileBusy:false,batchBusy:false,voiceStatus:'off',voiceError:null,puzzleIndex:0,puzzleResult:null,puzzleAttempt:null,puzzleCoachBusy:false,puzzleMessages:[],puzzleMastery:JSON.parse(localStorage.getItem('cc_puzzle_mastery')||'{}'),puzzleFilter:'for_you',puzzleSessionSize:10,puzzleHints:0,puzzleWrongThisRound:false,puzzleStartedAt:null,puzzleLine:null,puzzleLineLoading:false,puzzleLineIndex:0,puzzleFen:null,puzzleBaseId:null,puzzleStep:0,openingMastery:JSON.parse(localStorage.getItem('cc_opening_mastery')||'{}'),openingFilter:'for_you',openingColor:'all',openingSessionSize:10,openingIndex:0,openingResult:null,openingAttempt:null,openingHints:0,openingWrongThisRound:false,openingStartedAt:null,openingBaseId:null,openingScope:'all',openingCoachBusy:false,openingCoachMessages:[],lessonTopic:null,lessonBusy:false,lessonCache:JSON.parse(localStorage.getItem('cc_lessons')||'{}'),accountUser:null,accountReady:false,accountBusy:false,chessProfile:JSON.parse(localStorage.getItem('cc_chess_profile')||'null'),chessStats:JSON.parse(localStorage.getItem('cc_chess_stats')||'null'),allowTakebacks:JSON.parse(localStorage.getItem('cc_allow_takebacks')||'true'),lastStudentDecision:null,retryContext:null,retryHistory:JSON.parse(localStorage.getItem('cc_retry_history')||'[]'),messages:[{role:'coach',text:'Play naturally. I’ll focus on your reasoning, not narrate every engine change.'}]};
 const app=document.querySelector('#app');
 let voicePeer=null,voiceChannel=null,voiceMedia=null,voiceAudio=null;
 let mountedBoards=[];
@@ -90,6 +90,8 @@ function saveChessCache(){
   localStorage.setItem('cc_chess_user',s.user||'');
   localStorage.setItem('cc_chess_profile',JSON.stringify(s.chessProfile));
   localStorage.setItem('cc_chess_stats',JSON.stringify(s.chessStats));
+  localStorage.setItem('cc_allow_takebacks',JSON.stringify(s.allowTakebacks));
+  localStorage.setItem('cc_retry_history',JSON.stringify(s.retryHistory.slice(-100)));
   scheduleCloudSave();
 }
 function cloudPayload(){
@@ -102,7 +104,8 @@ function cloudPayload(){
     lessonCache:s.lessonCache,
     chessProfile:s.chessProfile,
     chessStats:s.chessStats,
-    settings:{opponentElo:s.opponentElo,coachMode:s.coachMode}
+    retryHistory:s.retryHistory.slice(-100),
+    settings:{opponentElo:s.opponentElo,coachMode:s.coachMode,allowTakebacks:s.allowTakebacks}
   };
 }
 function hasLocalProgress(){
@@ -129,9 +132,11 @@ function applyCloudState(state){
   if(state.lessonCache&&typeof state.lessonCache==='object')s.lessonCache=state.lessonCache;
   if('chessProfile' in state)s.chessProfile=state.chessProfile;
   if('chessStats' in state)s.chessStats=state.chessStats;
+  if(Array.isArray(state.retryHistory))s.retryHistory=state.retryHistory;
   if(state.settings){
     if(state.settings.opponentElo)s.opponentElo=Number(state.settings.opponentElo);
     if(state.settings.coachMode)s.coachMode=state.settings.coachMode;
+    if(typeof state.settings.allowTakebacks==='boolean')s.allowTakebacks=state.settings.allowTakebacks;
   }
   s.user=s.accountUser?.chesscom_username||s.user||'';
   persistLocalSnapshot();
@@ -224,14 +229,82 @@ async function disconnectChessCom(){
     s.accountUser=d.user;s.user='';s.chessProfile=null;s.chessStats=null;saveChessCache();render();pop('Chess.com disconnected.');
   }catch(e){pop(e.message)}
 }
+function saveRetryState(){
+  localStorage.setItem('cc_allow_takebacks',JSON.stringify(s.allowTakebacks));
+  localStorage.setItem('cc_retry_history',JSON.stringify(s.retryHistory.slice(-100)));
+  scheduleCloudSave();
+}
+function setTakebacks(enabled){
+  s.allowTakebacks=!!enabled;
+  saveRetryState();
+  render();
+}
+function uciFromMove(move){return move?move.from+move.to+(move.promotion||''):null}
+async function notifyTakeback(context){
+  if(s.missingKey)return;
+  s.coachBusy=true;render();
+  try{
+    const d=await post('/api/coach',{
+      event:'takeback',
+      mode:s.coachMode,
+      fen:s.game.fen(),
+      currentFen:s.game.fen(),
+      recentMoves:recentMoves(),
+      messages:s.messages,
+      retryContext:context
+    });
+    if(d.coach?.intervene&&d.coach.message)s.messages.push({role:'coach',text:d.coach.message});
+    captureEvidence(d.coach?.profile_updates||[]);
+  }catch(e){
+    if(e.data?.missingKey)s.missingKey=true;
+    else console.warn('Takeback coach event failed',e);
+  }finally{s.coachBusy=false;render()}
+}
+function undoForRetry(){
+  if(!s.allowTakebacks){pop('Takebacks are disabled. Turn them on in Play or Profile.');return}
+  if(s.opponentBusy||s.coachBusy){pop('Wait for the current move or coach response to finish.');return}
+  const history=s.game.history({verbose:true});
+  if(!history.length){pop('No move to take back.');return}
+  let opponentMove=null,studentMove=null;
+  const last=history[history.length-1];
+  if(last.color==='b'){
+    opponentMove=s.game.undo();
+    studentMove=s.game.undo();
+  }else studentMove=s.game.undo();
+  if(!studentMove||studentMove.color!=='w'){
+    if(studentMove)s.game.move(studentMove);
+    if(opponentMove)s.game.move(opponentMove);
+    pop('There is no student move to retry.');
+    return;
+  }
+  const original=s.lastStudentDecision&&s.lastStudentDecision.moveUci===uciFromMove(studentMove)
+    ? s.lastStudentDecision
+    : {fenBefore:s.game.fen(),moveSan:studentMove.san,moveUci:uciFromMove(studentMove),at:Date.now()};
+  const retryId=original.retryId||('retry-'+Date.now().toString(36));
+  s.retryContext={
+    id:retryId,
+    fen:s.game.fen(),
+    originalMoveSan:original.moveSan||studentMove.san,
+    originalMoveUci:original.moveUci||uciFromMove(studentMove),
+    opponentReplySan:opponentMove?.san||null,
+    opponentReplyUci:uciFromMove(opponentMove),
+    retryNumber:(original.retryNumber||0)+1,
+    takenBackAt:Date.now()
+  };
+  s.paused=false;
+  s.messages.push({role:'event',text:`Takeback: ${studentMove.san} was rewound. Try the position again.`});
+  pushVoiceContext();
+  render();
+  notifyTakeback(s.retryContext);
+}
 function captureEvidence(items=[]){if(!items.length)return;s.coachingEvidence.push(...items.map(x=>({...x,at:Date.now()})));saveEvidence()}
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok){const e=new Error(d.error||'Request failed');e.data=d;throw e}return d}
 function recentMoves(game=s.game){return game.history().slice(-20)}
-async function coachEvent(event,fenBefore,move){
+async function coachEvent(event,fenBefore,move,extra={}){
   if(s.coachBusy)return false;
   s.coachBusy=true;render();
   try{
-    const d=await post('/api/coach',{event,mode:s.coachMode,fenBefore,currentFen:s.game.fen(),lastMoveSan:move?.san||null,lastMoveUci:move?(move.from+move.to+(move.promotion||'')):null,recentMoves:recentMoves(),messages:s.messages});
+    const d=await post('/api/coach',{event,mode:s.coachMode,fenBefore,currentFen:s.game.fen(),lastMoveSan:move?.san||null,lastMoveUci:move?(move.from+move.to+(move.promotion||'')):null,recentMoves:recentMoves(),messages:s.messages,retryContext:extra.retryContext||null});
     s.missingKey=false;
     if(d.coach?.intervene&&d.coach.message)s.messages.push({role:'coach',text:d.coach.message});
     captureEvidence(d.coach?.profile_updates||[]);
@@ -241,8 +314,40 @@ async function coachEvent(event,fenBefore,move){
   return false;
 }
 async function coachAfterMove(fenBefore,move){
-  if(s.missingKey){if(!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();return}
-  const paused=await coachEvent('after_move',fenBefore,move);
+  const retry=s.retryContext&&s.retryContext.fen===fenBefore?s.retryContext:null;
+  if(retry){
+    const record={
+      id:retry.id,
+      at:Date.now(),
+      fen:fenBefore,
+      originalMoveSan:retry.originalMoveSan,
+      originalMoveUci:retry.originalMoveUci,
+      retryMoveSan:move.san,
+      retryMoveUci:uciFromMove(move),
+      retryNumber:retry.retryNumber,
+      changedMove:retry.originalMoveUci!==uciFromMove(move)
+    };
+    s.retryHistory.push(record);
+    s.retryHistory=s.retryHistory.slice(-100);
+    s.coachingEvidence.push({
+      skill:'coached retry',
+      direction:'neutral',
+      evidence:record.changedMove
+        ? `After takeback, changed ${record.originalMoveSan} to ${record.retryMoveSan} on retry ${record.retryNumber}.`
+        : `After takeback, repeated ${record.originalMoveSan} on retry ${record.retryNumber}.`,
+      confidence:'medium',
+      at:record.at
+    });
+    saveEvidence();saveRetryState();
+  }
+  s.lastStudentDecision={fenBefore,moveSan:move.san,moveUci:uciFromMove(move),at:Date.now(),retryId:retry?.id||null,retryNumber:retry?.retryNumber||0};
+  if(s.missingKey){
+    s.retryContext=null;
+    if(!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();
+    return;
+  }
+  const paused=await coachEvent(retry?'retry_move':'after_move',fenBefore,move,{retryContext:retry});
+  s.retryContext=null;
   if(!paused&&!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();
 }
 async function coachAfterOpponent(fenBefore,move){if(s.missingKey)return;await coachEvent('opponent_move',fenBefore,move)}
@@ -294,7 +399,8 @@ async function refreshProfilePlan(){
   try{
     const puzzleEvidence=Object.values(s.puzzleMastery).filter(x=>x.attempts).slice(-50).map(x=>({skill:'puzzle mastery',direction:(x.mastery||0)>=80?'strength':(x.mastery||0)<40?'weakness':'neutral',evidence:`Puzzle ${x.id}: ${x.correct||0}/${x.attempts||0} correct, mastery ${x.mastery||0}%, streak ${x.streak||0}`,confidence:(x.attempts||0)>=3?'medium':'low'}));
     const openingEvidence=Object.values(s.openingMastery).filter(x=>x.attempts).slice(-50).map(x=>({skill:'opening recall',direction:(x.mastery||0)>=80?'strength':(x.mastery||0)<40?'weakness':'neutral',evidence:`Opening position ${x.id}: ${x.correct||0}/${x.attempts||0} correct, mastery ${x.mastery||0}%, streak ${x.streak||0}`,confidence:(x.attempts||0)>=3?'medium':'low'}));
-    const d=await post('/api/profile-plan',{analyzedGames:analyzed,coachingEvidence:[...s.coachingEvidence,...puzzleEvidence,...openingEvidence],currentProfile:s.profilePlan,goals:{next:nextGoal(),longTerm:longGoal()}});
+    const retryEvidence=s.retryHistory.slice(-50).map(x=>({skill:'coached retry',direction:'neutral',evidence:x.changedMove?`Takeback ${x.originalMoveSan} → ${x.retryMoveSan} on retry ${x.retryNumber}.`:`Repeated ${x.originalMoveSan} after takeback on retry ${x.retryNumber}.`,confidence:'medium'}));
+    const d=await post('/api/profile-plan',{analyzedGames:analyzed,coachingEvidence:[...s.coachingEvidence,...puzzleEvidence,...openingEvidence,...retryEvidence],currentProfile:s.profilePlan,goals:{next:nextGoal(),longTerm:longGoal()}});
     s.profilePlan=d;saveProfile();pushVoiceContext();pop('Player profile and training plan updated.');
   }catch(e){pop(e.message)}
   finally{s.profileBusy=false;render()}
@@ -633,7 +739,7 @@ function mountBoards(){
   if(s.route==='opening-practice')mountOpeningBoard();
 }
 function coach(){const status=s.opponentBusy?'Opponent is thinking…':s.coachBusy?'Coach is thinking…':s.paused?'Game paused for coaching discussion.':s.voiceStatus==='connecting'?'Connecting voice…':s.voiceStatus==='on'?'Voice coach connected. Think aloud or ask questions naturally.':s.missingKey?'Stockfish is active. Add OPENAI_API_KEY on Railway to enable conversational coaching.':'The coach uses engine evidence selectively and can stay quiet when no intervention is useful.';return `<aside class="card coach"><div class="coachHead">AI Coach <button class="btn voiceBtn" data-action="${s.voiceStatus==='on'?'voice-stop':'voice-start'}" ${s.voiceStatus==='connecting'?'disabled':''}>${s.voiceStatus==='on'?'End voice':s.voiceStatus==='connecting'?'Connecting…':'🎙 Voice'}</button></div><div class="feed">${s.messages.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('')}<div class="notice">${status}</div>${s.voiceError?`<div class="notice">${esc(s.voiceError)}</div>`:''}${s.paused?`<button class="btn primary" data-action="continue-game">Continue game</button>`:''}</div><div class="compose"><input id="coachInput" class="input" placeholder="Ask about the position…" ${s.coachBusy?'disabled':''}><button class="btn primary" data-action="send" ${s.coachBusy?'disabled':''}>Send</button></div></aside>`}
-function play(){return `<section class="page"><div class="head"><div><h1>Play with Coach</h1><p>Play White against a limited-strength Stockfish opponent while the coach observes your reasoning.</p></div></div><div class="workspace"><div class="card boardCard"><div class="player">Training opponent <select id="opponentElo" class="select miniSelect">${[1350,1450,1600,1800,2000].map(x=>`<option value="${x}" ${s.opponentElo===x?'selected':''}>~${x}</option>`).join('')}</select><span class="sub">&nbsp;Stockfish limited strength</span><span class="clock">15:00</span></div>${board(s.game,true,'play-board')}<div class="player">You <span class="sub">&nbsp;White · current baseline ~${currentRapidRating()}</span><span class="clock">15:00</span></div><div class="actions"><button class="btn" data-action="new">New game</button><button class="btn" data-action="undo">Undo turn</button><button class="btn" data-action="flip">Flip</button><select id="coachMode" class="select miniSelect">${[['normal','Normal'],['guided','Guided'],['minimal','Minimal'],['assessment','Assessment'],['ask_only','Ask only']].map(([v,l])=>`<option value="${v}" ${s.coachMode===v?'selected':''}>${l}</option>`).join('')}</select><span class="sub">${s.paused?'Paused':s.opponentBusy?'Opponent thinking':s.game.isGameOver()?'Game over':s.game.turn()==='w'?'Your move':'Opponent move'}</span></div></div>${coach()}</div></section>`}
+function play(){return `<section class="page"><div class="head"><div><h1>Play with Coach</h1><p>Play White against a limited-strength Stockfish opponent while the coach observes your reasoning.</p></div></div><div class="workspace"><div class="card boardCard"><div class="player">Training opponent <select id="opponentElo" class="select miniSelect">${[1350,1450,1600,1800,2000].map(x=>`<option value="${x}" ${s.opponentElo===x?'selected':''}>~${x}</option>`).join('')}</select><span class="sub">&nbsp;Stockfish limited strength</span><span class="clock">15:00</span></div>${board(s.game,true,'play-board')}<div class="player">You <span class="sub">&nbsp;White · current baseline ~${currentRapidRating()}</span><span class="clock">15:00</span></div><div class="actions"><button class="btn" data-action="new">New game</button><button class="btn" data-action="undo" ${!s.allowTakebacks||!s.game.history().length?"disabled":""}>Undo / Try again</button><label class="takebackToggle"><input id="takebackToggle" type="checkbox" ${s.allowTakebacks?"checked":""}><span>Takebacks</span></label><button class="btn" data-action="flip">Flip</button><select id="coachMode" class="select miniSelect">${[['normal','Normal'],['guided','Guided'],['minimal','Minimal'],['assessment','Assessment'],['ask_only','Ask only']].map(([v,l])=>`<option value="${v}" ${s.coachMode===v?'selected':''}>${l}</option>`).join('')}</select><span class="sub">${s.paused?'Paused':s.opponentBusy?'Opponent thinking':s.game.isGameOver()?'Game over':s.game.turn()==='w'?'Your move':'Opponent move'}</span></div></div>${coach()}</div></section>`}
 function clickSquare(q){if(s.paused||s.opponentBusy||s.game.isGameOver()||s.game.turn()!=='w')return;if(!s.sel){const p=s.game.get(q);if(!p||p.color!=='w')return;s.sel=q;s.legal=s.game.moves({square:q,verbose:true});return render()}if(q===s.sel){s.sel=null;s.legal=[];return render()}const m=s.legal.find(x=>x.to===q);if(m){const fenBefore=s.game.fen();const done=s.game.move({from:s.sel,to:q,promotion:'q'});s.sel=null;s.legal=[];pushVoiceContext();render();coachAfterMove(fenBefore,done);return}const p=s.game.get(q);if(p&&p.color==='w'){s.sel=q;s.legal=s.game.moves({square:q,verbose:true});render()}}
 function analyze(){
   const analyzed=s.games.filter(g=>g.analysis).length;
@@ -921,7 +1027,7 @@ function profilePage(){
   const blitz=s.chessStats?.chess_blitz?.last?.rating||null;
   const bullet=s.chessStats?.chess_bullet?.last?.rating||null;
   const connected=s.accountUser.chesscom_username;
-  return `<section class="page accountPage"><div class="head"><div><h1>Profile</h1><p>Your account, goals, connected chess profile, and cloud progress.</p></div><button class="btn" style="margin-left:auto" data-action="logout">Sign out</button></div><div class="profileGrid"><div class="card pad"><h3>Account</h3><div class="accountEmail">${esc(s.accountUser.email)}</div><label class="formLabel">Display name</label><input id="profileName" class="input" value="${esc(s.accountUser.display_name||'')}" placeholder="Your name"><div class="goalGrid"><div><label class="formLabel">Next rating goal</label><input id="goalNext" class="input" type="number" min="100" max="3500" value="${nextGoal()}"></div><div><label class="formLabel">Long-term goal</label><input id="goalLong" class="input" type="number" min="100" max="3500" value="${longGoal()}"></div></div><button class="btn primary" data-action="profile-save" ${s.accountBusy?'disabled':''}>Save profile</button></div><div class="card pad"><h3>Chess.com</h3><p class="sub">Connect your public Chess.com username once. Analyze, Home, Openings, and Progress will use it automatically.</p><label class="formLabel">Chess.com username</label><div class="row"><input id="profileChessUser" class="input" value="${esc(connected||'')}" placeholder="username"><button class="btn primary" data-action="chess-connect" ${s.accountBusy?'disabled':''}>${connected?'Sync':'Connect'}</button></div>${connected?`<div class="ratingStrip"><div><b>${rapid||'—'}</b><span>Rapid</span></div><div><b>${blitz||'—'}</b><span>Blitz</span></div><div><b>${bullet||'—'}</b><span>Bullet</span></div></div><button class="textButton" data-action="chess-disconnect">Disconnect Chess.com</button>`:''}</div><div class="card pad"><h3>Cloud progress</h3><div class="cloudStatus"><span class="statusDot"></span><strong>Sync active</strong></div><div class="accountStats"><div><b>${s.games.length}</b><span>games</span></div><div><b>${Object.keys(s.puzzleMastery).length}</b><span>puzzle positions</span></div><div><b>${Object.keys(s.openingMastery).length}</b><span>opening positions</span></div><div><b>${Object.keys(s.lessonCache).length}</b><span>lessons</span></div></div><p class="sub">Changes are saved automatically while you are signed in.</p></div></div></section>`;
+  return `<section class="page accountPage"><div class="head"><div><h1>Profile</h1><p>Your account, goals, connected chess profile, and cloud progress.</p></div><button class="btn" style="margin-left:auto" data-action="logout">Sign out</button></div><div class="profileGrid"><div class="card pad"><h3>Account</h3><div class="accountEmail">${esc(s.accountUser.email)}</div><label class="formLabel">Display name</label><input id="profileName" class="input" value="${esc(s.accountUser.display_name||'')}" placeholder="Your name"><div class="goalGrid"><div><label class="formLabel">Next rating goal</label><input id="goalNext" class="input" type="number" min="100" max="3500" value="${nextGoal()}"></div><div><label class="formLabel">Long-term goal</label><input id="goalLong" class="input" type="number" min="100" max="3500" value="${longGoal()}"></div></div><button class="btn primary" data-action="profile-save" ${s.accountBusy?'disabled':''}>Save profile</button></div><div class="card pad"><h3>Chess.com</h3><p class="sub">Connect your public Chess.com username once. Analyze, Home, Openings, and Progress will use it automatically.</p><label class="formLabel">Chess.com username</label><div class="row"><input id="profileChessUser" class="input" value="${esc(connected||'')}" placeholder="username"><button class="btn primary" data-action="chess-connect" ${s.accountBusy?'disabled':''}>${connected?'Sync':'Connect'}</button></div>${connected?`<div class="ratingStrip"><div><b>${rapid||'—'}</b><span>Rapid</span></div><div><b>${blitz||'—'}</b><span>Blitz</span></div><div><b>${bullet||'—'}</b><span>Bullet</span></div></div><button class="textButton" data-action="chess-disconnect">Disconnect Chess.com</button>`:''}</div><div class="card pad"><h3>Cloud progress</h3><div class="cloudStatus"><span class="statusDot"></span><strong>Sync active</strong></div><div class="accountStats"><div><b>${s.games.length}</b><span>games</span></div><div><b>${Object.keys(s.puzzleMastery).length}</b><span>puzzle positions</span></div><div><b>${Object.keys(s.openingMastery).length}</b><span>opening positions</span></div><div><b>${Object.keys(s.lessonCache).length}</b><span>lessons</span></div></div><div class="settingRow"><div><strong>Allow coached takebacks</strong><span>Rewind your last decision and retry the position. Retries become coaching evidence.</span></div><label class="switch"><input id="profileTakebacks" type="checkbox" ${s.allowTakebacks?"checked":""}><span></span></label></div><p class="sub">Changes are saved automatically while you are signed in.</p></div></div></section>`;
 }
 
 function page(){if(s.route==='profile')return profilePage();if(s.route==='home')return home();if(s.route==='play')return play();if(s.route==='analyze')return analyze();if(s.route==='review')return review();if(s.route==='progress')return progress();if(s.route==='lesson')return lesson();if(s.route==='puzzles')return puzzles();if(s.route==='opening-practice')return openingPractice();if(s.route==='openings')return learn('openings');return learn()}
@@ -932,7 +1038,7 @@ document.querySelector('[data-action=auth-register]')?.addEventListener('click',
 document.querySelector('[data-action=logout]')?.addEventListener('click',signOut);
 document.querySelector('[data-action=profile-save]')?.addEventListener('click',saveAccountProfile);
 document.querySelector('[data-action=chess-connect]')?.addEventListener('click',connectChessCom);
-document.querySelector('[data-action=chess-disconnect]')?.addEventListener('click',disconnectChessCom);document.querySelectorAll('[data-route]').forEach(e=>e.onclick=()=>go(e.dataset.route));document.querySelectorAll('[data-lesson]').forEach(e=>e.onclick=()=>openLesson(e.dataset.lesson));document.querySelectorAll('[data-opening-lesson]').forEach(e=>e.onclick=()=>openLesson('Opening study: '+decodeURIComponent(e.dataset.openingLesson)));document.querySelectorAll('[data-opening-practice-scope]').forEach(e=>e.onclick=()=>startOpeningPractice({scope:decodeURIComponent(e.dataset.openingPracticeScope),color:e.dataset.openingPracticeColor||'all',filter:e.dataset.openingPracticeFilter||'for_you'}));document.querySelectorAll('[data-opening-filter]').forEach(e=>e.onclick=()=>setOpeningFilter(e.dataset.openingFilter));document.querySelector('#openingColor')?.addEventListener('change',e=>setOpeningColor(e.target.value));document.querySelector('#openingSessionSize')?.addEventListener('change',e=>setOpeningSessionSize(e.target.value));document.querySelector('[data-action=opening-next]')?.addEventListener('click',nextOpeningItem);document.querySelector('[data-action=opening-retry]')?.addEventListener('click',retryOpeningItem);document.querySelector('[data-action=opening-coach-send]')?.addEventListener('click',()=>askOpeningCoach(document.querySelector('#openingCoachInput')?.value.trim()));document.querySelector('#openingCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askOpeningCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=lesson-refresh]')?.addEventListener('click',()=>{if(s.lessonTopic)loadLesson(s.lessonTopic,true)});document.querySelectorAll('[data-square]').forEach(e=>e.onclick=()=>clickSquare(e.dataset.square));document.querySelector('[data-action=new]')?.addEventListener('click',()=>{s.game=new Chess();s.sel=null;s.legal=[];s.paused=false;s.opponentBusy=false;s.messages=[{role:'coach',text:'New training game. Play naturally; I’ll intervene selectively.'}];render()});document.querySelector('[data-action=undo]')?.addEventListener('click',()=>{if(s.opponentBusy)return;s.paused=false;s.game.undo();if(s.game.turn()==='b')s.game.undo();render()});document.querySelector('[data-action=flip]')?.addEventListener('click',()=>{s.orient=s.orient==='white'?'black':'white';render()});document.querySelector('[data-action=continue-game]')?.addEventListener('click',()=>{s.paused=false;render();if(s.game.turn()==='b')makeOpponentMove()});document.querySelector('#opponentElo')?.addEventListener('change',e=>{s.opponentElo=Number(e.target.value)});document.querySelector('#coachMode')?.addEventListener('change',e=>{s.coachMode=e.target.value});document.querySelector('[data-action=send]')?.addEventListener('click',()=>askCoach(document.querySelector('#coachInput')?.value.trim()));document.querySelector('[data-action=voice-start]')?.addEventListener('click',startVoice);document.querySelector('[data-action=voice-stop]')?.addEventListener('click',stopVoice);document.querySelector('#coachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=analyze-review]')?.addEventListener('click',analyzeReviewedGame);document.querySelector('[data-action=review-send]')?.addEventListener('click',()=>askReviewCoach(document.querySelector('#reviewCoachInput')?.value.trim()));document.querySelector('#reviewCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askReviewCoach(e.currentTarget.value.trim())});document.querySelectorAll('[data-puzzle-filter]').forEach(e=>e.addEventListener('click',()=>setPuzzleFilter(e.dataset.puzzleFilter)));document.querySelector('#puzzleSessionSize')?.addEventListener('change',e=>setPuzzleSessionSize(e.target.value));document.querySelector('[data-action=puzzle-next]')?.addEventListener('click',nextPuzzle);document.querySelector('[data-action=puzzle-retry]')?.addEventListener('click',resetPuzzle);document.querySelector('[data-action=puzzle-coach-send]')?.addEventListener('click',()=>askPuzzleCoach(document.querySelector('#puzzleCoachInput')?.value.trim()));document.querySelector('#puzzleCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askPuzzleCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=batch-analyze]')?.addEventListener('click',batchAnalyze);document.querySelector('[data-action=sync]')?.addEventListener('click',sync);document.querySelectorAll('[data-action=refresh-profile]').forEach(e=>e.addEventListener('click',refreshProfilePlan));document.querySelector('[data-action=pgn]')?.addEventListener('click',()=>{const a=parsePgn(document.querySelector('#pgn')?.value||'');if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();pop(`Imported ${a.length} PGN game${a.length===1?'':'s'}.`)});document.querySelectorAll('[data-review]').forEach(e=>e.onclick=()=>openReview(+e.dataset.review));document.querySelectorAll('[data-ply]').forEach(e=>e.onclick=()=>setPly(+e.dataset.ply));document.querySelector('[data-action=prev]')?.addEventListener('click',()=>setPly(s.ply-1));document.querySelector('[data-action=next]')?.addEventListener('click',()=>setPly(s.ply+1));const d=document.querySelector('#drop'),f=document.querySelector('#file');d?.addEventListener('click',()=>f.click());f?.addEventListener('change',async()=>{const file=f.files?.[0];if(!file)return;const a=parsePgn(await file.text());if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();render()});d?.addEventListener('dragover',e=>e.preventDefault());d?.addEventListener('drop',async e=>{e.preventDefault();const file=e.dataTransfer.files?.[0];if(!file)return;const a=parsePgn(await file.text());s.games=[...a,...s.games];save();render()})}
+document.querySelector('[data-action=chess-disconnect]')?.addEventListener('click',disconnectChessCom);document.querySelectorAll('[data-route]').forEach(e=>e.onclick=()=>go(e.dataset.route));document.querySelectorAll('[data-lesson]').forEach(e=>e.onclick=()=>openLesson(e.dataset.lesson));document.querySelectorAll('[data-opening-lesson]').forEach(e=>e.onclick=()=>openLesson('Opening study: '+decodeURIComponent(e.dataset.openingLesson)));document.querySelectorAll('[data-opening-practice-scope]').forEach(e=>e.onclick=()=>startOpeningPractice({scope:decodeURIComponent(e.dataset.openingPracticeScope),color:e.dataset.openingPracticeColor||'all',filter:e.dataset.openingPracticeFilter||'for_you'}));document.querySelectorAll('[data-opening-filter]').forEach(e=>e.onclick=()=>setOpeningFilter(e.dataset.openingFilter));document.querySelector('#openingColor')?.addEventListener('change',e=>setOpeningColor(e.target.value));document.querySelector('#openingSessionSize')?.addEventListener('change',e=>setOpeningSessionSize(e.target.value));document.querySelector('[data-action=opening-next]')?.addEventListener('click',nextOpeningItem);document.querySelector('[data-action=opening-retry]')?.addEventListener('click',retryOpeningItem);document.querySelector('[data-action=opening-coach-send]')?.addEventListener('click',()=>askOpeningCoach(document.querySelector('#openingCoachInput')?.value.trim()));document.querySelector('#openingCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askOpeningCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=lesson-refresh]')?.addEventListener('click',()=>{if(s.lessonTopic)loadLesson(s.lessonTopic,true)});document.querySelectorAll('[data-square]').forEach(e=>e.onclick=()=>clickSquare(e.dataset.square));document.querySelector('[data-action=new]')?.addEventListener('click',()=>{s.game=new Chess();s.sel=null;s.legal=[];s.paused=false;s.opponentBusy=false;s.retryContext=null;s.lastStudentDecision=null;s.messages=[{role:'coach',text:'New training game. Play naturally; I’ll intervene selectively.'}];render()});document.querySelector('[data-action=undo]')?.addEventListener('click',undoForRetry);document.querySelector('#takebackToggle')?.addEventListener('change',e=>setTakebacks(e.target.checked));document.querySelector('#profileTakebacks')?.addEventListener('change',e=>setTakebacks(e.target.checked));document.querySelector('[data-action=flip]')?.addEventListener('click',()=>{s.orient=s.orient==='white'?'black':'white';render()});document.querySelector('[data-action=continue-game]')?.addEventListener('click',()=>{s.paused=false;render();if(s.game.turn()==='b')makeOpponentMove()});document.querySelector('#opponentElo')?.addEventListener('change',e=>{s.opponentElo=Number(e.target.value)});document.querySelector('#coachMode')?.addEventListener('change',e=>{s.coachMode=e.target.value});document.querySelector('[data-action=send]')?.addEventListener('click',()=>askCoach(document.querySelector('#coachInput')?.value.trim()));document.querySelector('[data-action=voice-start]')?.addEventListener('click',startVoice);document.querySelector('[data-action=voice-stop]')?.addEventListener('click',stopVoice);document.querySelector('#coachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=analyze-review]')?.addEventListener('click',analyzeReviewedGame);document.querySelector('[data-action=review-send]')?.addEventListener('click',()=>askReviewCoach(document.querySelector('#reviewCoachInput')?.value.trim()));document.querySelector('#reviewCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askReviewCoach(e.currentTarget.value.trim())});document.querySelectorAll('[data-puzzle-filter]').forEach(e=>e.addEventListener('click',()=>setPuzzleFilter(e.dataset.puzzleFilter)));document.querySelector('#puzzleSessionSize')?.addEventListener('change',e=>setPuzzleSessionSize(e.target.value));document.querySelector('[data-action=puzzle-next]')?.addEventListener('click',nextPuzzle);document.querySelector('[data-action=puzzle-retry]')?.addEventListener('click',resetPuzzle);document.querySelector('[data-action=puzzle-coach-send]')?.addEventListener('click',()=>askPuzzleCoach(document.querySelector('#puzzleCoachInput')?.value.trim()));document.querySelector('#puzzleCoachInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')askPuzzleCoach(e.currentTarget.value.trim())});document.querySelector('[data-action=batch-analyze]')?.addEventListener('click',batchAnalyze);document.querySelector('[data-action=sync]')?.addEventListener('click',sync);document.querySelectorAll('[data-action=refresh-profile]').forEach(e=>e.addEventListener('click',refreshProfilePlan));document.querySelector('[data-action=pgn]')?.addEventListener('click',()=>{const a=parsePgn(document.querySelector('#pgn')?.value||'');if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();pop(`Imported ${a.length} PGN game${a.length===1?'':'s'}.`)});document.querySelectorAll('[data-review]').forEach(e=>e.onclick=()=>openReview(+e.dataset.review));document.querySelectorAll('[data-ply]').forEach(e=>e.onclick=()=>setPly(+e.dataset.ply));document.querySelector('[data-action=prev]')?.addEventListener('click',()=>setPly(s.ply-1));document.querySelector('[data-action=next]')?.addEventListener('click',()=>setPly(s.ply+1));const d=document.querySelector('#drop'),f=document.querySelector('#file');d?.addEventListener('click',()=>f.click());f?.addEventListener('change',async()=>{const file=f.files?.[0];if(!file)return;const a=parsePgn(await file.text());if(!a.length)return pop('No valid PGN found.');s.games=[...a,...s.games];save();render()});d?.addEventListener('dragover',e=>e.preventDefault());d?.addEventListener('drop',async e=>{e.preventDefault();const file=e.dataTransfer.files?.[0];if(!file)return;const a=parsePgn(await file.text());s.games=[...a,...s.games];save();render()})}
 function render(){destroyBoards();app.innerHTML=shell(page());bind();requestAnimationFrame(()=>mountBoards())}
 render();
 bootstrapAccount();
