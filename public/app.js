@@ -17,6 +17,8 @@ function voiceContext(){
     recentMoves:inReview?s.review.h.slice(0,s.ply).map(x=>x.san).slice(-20):recentMoves(),
     coachMode:s.coachMode,
     playerProfile:s.profilePlan,
+    retryContext:inReview?null:s.retryContext,
+    recentRetries:inReview?[]:s.retryHistory.slice(-5),
     review:inReview?{
       opponent:s.review.opponent,result:s.review.result,color:s.review.color,currentPly:s.ply,
       engineEvidence:s.review.analysis?.moves?.find(x=>x.ply===s.ply+1)||s.review.analysis?.moves?.find(x=>x.ply===s.ply)||null
