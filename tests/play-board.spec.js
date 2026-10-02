@@ -183,3 +183,52 @@ test('Takebacks can be disabled from Play', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Undo / Try again' })).toBeDisabled();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cc_allow_takebacks')))).toBe(false);
 });
+
+
+test('Live coach keeps newest messages in view inside a fixed-height panel', async ({ page }) => {
+  await page.unroute('**/api/coach');
+  let n = 0;
+  await page.route('**/api/coach', route => {
+    n += 1;
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        coach: {
+          intervene: true,
+          pause_game: false,
+          message: 'Coach reply ' + n + ' — verified training feedback that is long enough to create a scrolling conversation.',
+          observation: '',
+          skill_tags: [],
+          confidence: 'high',
+          profile_updates: []
+        },
+        model: 'test'
+      })
+    });
+  });
+
+  await page.goto('/#/play');
+
+  for (let i = 0; i < 10; i++) {
+    const input = page.locator('#coachInput');
+    await input.fill('Question ' + i);
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('Coach reply ' + (i + 1), { exact: false })).toBeVisible();
+  }
+
+  const metrics = await page.locator('.workspace .card.coach .feed').evaluate(el => ({
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    distanceFromBottom: el.scrollHeight - el.clientHeight - el.scrollTop
+  }));
+
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  expect(metrics.scrollTop).toBeGreaterThan(0);
+  expect(metrics.distanceFromBottom).toBeLessThan(8);
+
+  const panel = await page.locator('.workspace .card.coach').boundingBox();
+  expect(panel).not.toBeNull();
+  expect(panel.height).toBeLessThanOrEqual(765);
+});
