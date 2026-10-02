@@ -1044,8 +1044,18 @@ document.querySelector('[data-action=chess-disconnect]')?.addEventListener('clic
 function scrollLatestCoach(){
   if(s.route!=='play')return;
   const feed=document.querySelector('.workspace .card.coach .feed');
-  if(feed)feed.scrollTop=feed.scrollHeight;
+  if(!feed)return;
+  feed.scrollTop=feed.scrollHeight;
+  feed.lastElementChild?.scrollIntoView({block:'end'});
 }
-function render(){destroyBoards();app.innerHTML=shell(page());bind();requestAnimationFrame(()=>{mountBoards();scrollLatestCoach()})}
+function render(){
+  destroyBoards();
+  app.innerHTML=shell(page());
+  bind();
+  requestAnimationFrame(()=>{
+    mountBoards();
+    requestAnimationFrame(scrollLatestCoach);
+  });
+}
 render();
 bootstrapAccount();
