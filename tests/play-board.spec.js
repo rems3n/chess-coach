@@ -74,3 +74,21 @@ test('Repeated rerenders never duplicate the Play board', async ({ page }) => {
     await expect(page.locator('#play-board cg-board')).toHaveCount(1);
   }
 });
+
+
+test('Coach messages stay compact and do not inherit panel height', async ({ page }) => {
+  await page.goto('/#/play');
+  const panel = page.locator('.card.coach');
+  const message = page.locator('.msg.coach').first();
+
+  await expect(panel).toBeVisible();
+  await expect(message).toBeVisible();
+
+  const panelBox = await panel.boundingBox();
+  const messageBox = await message.boundingBox();
+  expect(panelBox).not.toBeNull();
+  expect(messageBox).not.toBeNull();
+
+  expect(panelBox.height).toBeGreaterThan(400);
+  expect(messageBox.height).toBeLessThan(140);
+});
