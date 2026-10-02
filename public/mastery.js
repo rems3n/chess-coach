@@ -23,7 +23,7 @@ export function normalizeMastery(record, id) {
   return { ...emptyMastery(id), ...(record || {}), id };
 }
 
-export function recordPuzzleAttempt(record, {
+export function recordMasteryAttempt(record, {
   correct,
   firstTry = true,
   hints = 0,
@@ -75,7 +75,7 @@ export function masteryStatus(record, now = Date.now()) {
   return 'learning';
 }
 
-export function puzzlePriority(item, record, now = Date.now()) {
+export function itemPriority(item, record, now = Date.now()) {
   const r = normalizeMastery(record, item.id);
   const status = masteryStatus(r, now);
   const severity = Math.min(500, Number(item.cpLoss) || 0);
@@ -88,10 +88,22 @@ export function puzzlePriority(item, record, now = Date.now()) {
   return 500 + (100 - r.mastery) + severity / 10;
 }
 
-export function prioritizePuzzles(items, records = {}, now = Date.now()) {
+export function prioritizeItems(items, records = {}, now = Date.now()) {
   return [...items].sort((a, b) =>
-    puzzlePriority(b, records[b.id], now) - puzzlePriority(a, records[a.id], now)
+    itemPriority(b, records[b.id], now) - itemPriority(a, records[a.id], now)
   );
+}
+
+export function recordPuzzleAttempt(record, options) {
+  return recordMasteryAttempt(record, options);
+}
+
+export function puzzlePriority(item, record, now = Date.now()) {
+  return itemPriority(item, record, now);
+}
+
+export function prioritizePuzzles(items, records = {}, now = Date.now()) {
+  return prioritizeItems(items, records, now);
 }
 
 export function masterySummary(items, records = {}, now = Date.now()) {
