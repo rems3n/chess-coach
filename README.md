@@ -83,3 +83,21 @@ Personal puzzle training is generated from critical positions in analyzed games.
 - Puzzle mastery feeds the Home recommendation and My Chess progress views.
 
 For the personal MVP, mastery is persisted in browser localStorage under `cc_puzzle_mastery`. The data model is intentionally structured for a later move to Postgres/Supabase.
+
+
+## Opening Practice and repertoire mastery
+
+Opening Practice is derived from the user's imported and analyzed games rather than from an arbitrary premade repertoire.
+
+- Analyzed opening positions become recall drills.
+- Sound moves from the user's games reinforce the existing repertoire.
+- Meaningful opening mistakes are replaced with the engine-supported correction before becoming training material.
+- Separate White / Black / combined practice.
+- For You, Due, New, Mastered, and All queues use the same spaced-repetition engine as puzzles.
+- Sessions can be limited to 5, 10, 20, or all positions.
+- Every position tracks attempts, clean streak, mastery, hints, response time, and next review.
+- AI coaching is available inside a repertoire drill for move-order and strategic questions.
+- Opening mastery feeds Home recommendations, My Chess, and adaptive profile generation.
+- Opening Lab shows imported repertoire frequency, record, trainable positions, and correction count.
+
+For the personal MVP, opening mastery persists in browser localStorage under `cc_opening_mastery`.
