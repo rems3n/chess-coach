@@ -260,6 +260,56 @@ ${JSON.stringify(context)}
         return json(res, 200, { move: result.bestmove, analysis: result.lines[0] || null, elo: Number(body.elo || 1450) });
       } catch (err) { return json(res, 400, { error: err.message || 'Opponent move failed' }); }
     }
+    if (url.pathname === '/api/coach-gate' && req.method === 'POST') {
+      try {
+        const body = await readJson(req);
+        if (!body.fenBefore || !body.lastMoveUci) throw new Error('Move context is required');
+        const mode = body.mode || 'normal';
+        if (mode === 'assessment' || mode === 'ask_only') {
+          return json(res, 200, { shouldIntervene:false, pauseRecommended:false, reason:'mode_silent' });
+        }
+        const [top, played] = await Promise.all([
+          analyzeFen(body.fenBefore, { depth:11, multiPv:3 }),
+          analyzeFen(body.fenBefore, { depth:11, multiPv:1, searchMoves:[body.lastMoveUci] })
+        ]);
+        const best = top.lines[0];
+        const playedLine = played.lines[0];
+        const scoreNumberLocal = score => {
+          if (!score) return 0;
+          if (score.type === 'cp') return score.value;
+          return score.value > 0 ? 100000 - Math.min(Math.abs(score.value),999)*100 : -100000 + Math.min(Math.abs(score.value),999)*100;
+        };
+        const cpLoss = Math.max(0, Math.round(scoreNumberLocal(best?.score) - scoreNumberLocal(playedLine?.score)));
+        const threshold = mode === 'guided' ? 60 : mode === 'minimal' ? 220 : 120;
+        const shouldIntervene = !!body.retryContext || cpLoss >= threshold;
+        const bestUci = best?.pv?.[0] || null;
+        const bestSan = bestUci ? (() => {
+          try {
+            const game = new (await import('chess.js')).Chess(body.fenBefore);
+            return game.move({from:bestUci.slice(0,2),to:bestUci.slice(2,4),promotion:bestUci[4]||'q'})?.san || null;
+          } catch { return null; }
+        })() : null;
+        const forcing = !!bestSan && /[x+#]/.test(bestSan);
+        const classification = cpLoss >= 250 ? 'blunder' : cpLoss >= 120 ? 'mistake' : cpLoss >= 60 ? 'inaccuracy' : 'near_best';
+        let prompt = '';
+        if (shouldIntervene) {
+          if (body.retryContext) prompt = `Retry recorded for ${body.lastMoveSan || 'your move'}. I’ll compare it with the original decision.`;
+          else if (classification === 'blunder') prompt = `I flagged ${body.lastMoveSan || 'that move'} as a major error. Keep playing; I’ll save the position for review.`;
+          else if (forcing) prompt = `I flagged ${body.lastMoveSan || 'that move'}: there was a forcing resource in the position. Keep playing; we’ll review it.`;
+          else prompt = `I flagged ${body.lastMoveSan || 'that move'} as an instructive decision. Keep playing; we’ll review it.`;
+        }
+        return json(res, 200, {
+          shouldIntervene,
+          pauseRecommended: mode === 'guided' && shouldIntervene,
+          cpLoss,
+          classification,
+          forcing,
+          bestMoveSan: bestSan,
+          prompt,
+          engineDepth: best?.depth || 11
+        });
+      } catch (err) { return json(res, 400, { error: err.message || 'Coach gate failed' }); }
+    }
     if (url.pathname === '/api/coach' && req.method === 'POST') {
       try {
         const body = await readJson(req);
