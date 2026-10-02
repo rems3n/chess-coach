@@ -306,15 +306,73 @@ async function coachEvent(event,fenBefore,move,extra={}){
   if(s.coachBusy)return false;
   s.coachBusy=true;render();
   try{
-    const d=await post('/api/coach',{event,mode:s.coachMode,fenBefore,currentFen:s.game.fen(),lastMoveSan:move?.san||null,lastMoveUci:move?(move.from+move.to+(move.promotion||'')):null,recentMoves:recentMoves(),messages:s.messages,retryContext:extra.retryContext||null});
+    const d=await post('/api/coach',{
+      event,
+      mode:s.coachMode,
+      fenBefore,
+      currentFen:extra.currentFen||s.game.fen(),
+      lastMoveSan:move?.san||null,
+      lastMoveUci:move?uciFromMove(move):null,
+      recentMoves:extra.recentMoves||recentMoves(),
+      messages:s.messages,
+      retryContext:extra.retryContext||null,
+      lastDecisionContext:s.lastStudentDecision||null
+    });
     s.missingKey=false;
     if(d.coach?.intervene&&d.coach.message)s.messages.push({role:'coach',text:d.coach.message});
     captureEvidence(d.coach?.profile_updates||[]);
-    if(d.coach?.pause_game){s.paused=true;return true}
-  }catch(e){if(e.data?.missingKey)s.missingKey=true;else pop(e.message)}
+    const mayPause=s.coachMode==='guided'&&d.coach?.pause_game;
+    if(mayPause){s.paused=true;return true}
+  }catch(e){if(e.data?.missingKey)s.missingKey=true;else console.warn('Coach event failed',e)}
   finally{s.coachBusy=false;render()}
   return false;
 }
+
+async function gateCoachMove(snapshot){
+  if(!['normal','minimal','guided'].includes(snapshot.mode))return {shouldIntervene:false};
+  try{
+    const d=await post('/api/coach-gate',{
+      mode:snapshot.mode,
+      fenBefore:snapshot.fenBefore,
+      lastMoveSan:snapshot.move.san,
+      lastMoveUci:uciFromMove(snapshot.move),
+      retryContext:snapshot.retryContext||null
+    });
+    if(d.shouldIntervene){
+      s.coachingEvidence.push({
+        skill:'live decision quality',
+        direction:'weakness',
+        evidence:`${snapshot.move.san}: ${d.classification||'instructive'} decision, engine loss ${d.cpLoss||0} cp.`,
+        confidence:'high',
+        at:Date.now()
+      });
+      saveEvidence();
+    }
+    return d;
+  }catch(e){
+    console.warn('Coach gate failed',e);
+    return {shouldIntervene:false};
+  }
+}
+
+async function backgroundMoveCoaching(snapshot){
+  const gate=await gateCoachMove(snapshot);
+  if(!gate.shouldIntervene)return;
+  if(snapshot.mode==='guided'){
+    s.paused=true;render();
+    await coachEvent(snapshot.retryContext?'retry_move':'after_move',snapshot.fenBefore,snapshot.move,{
+      retryContext:snapshot.retryContext,
+      currentFen:snapshot.fenAfter,
+      recentMoves:snapshot.recentMoves
+    });
+    return;
+  }
+  if(gate.prompt){
+    s.messages.push({role:'coach',text:gate.prompt});
+    render();
+  }
+}
+
 async function coachAfterMove(fenBefore,move){
   const retry=s.retryContext&&s.retryContext.fen===fenBefore?s.retryContext:null;
   if(retry){
@@ -342,40 +400,77 @@ async function coachAfterMove(fenBefore,move){
     });
     saveEvidence();saveRetryState();
   }
+
+  const snapshot={
+    mode:s.coachMode,
+    fenBefore,
+    fenAfter:s.game.fen(),
+    move,
+    retryContext:retry,
+    recentMoves:recentMoves()
+  };
   s.lastStudentDecision={fenBefore,moveSan:move.san,moveUci:uciFromMove(move),at:Date.now(),retryId:retry?.id||null,retryNumber:retry?.retryNumber||0};
-  if(s.missingKey){
-    s.retryContext=null;
+  s.retryContext=null;
+
+  // Normal/minimal/assessment/ask-only never wait on the coach.
+  if(s.coachMode!=='guided'){
     if(!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();
+    if(!s.missingKey)backgroundMoveCoaching(snapshot);
     return;
   }
-  const paused=await coachEvent(retry?'retry_move':'after_move',fenBefore,move,{retryContext:retry});
-  s.retryContext=null;
-  if(!paused&&!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();
+
+  // Guided mode may deliberately pause for an instructive decision.
+  const gate=await gateCoachMove(snapshot);
+  if(gate.shouldIntervene){
+    s.paused=true;render();
+    if(!s.missingKey){
+      await coachEvent(retry?'retry_move':'after_move',fenBefore,move,{
+        retryContext:retry,
+        currentFen:snapshot.fenAfter,
+        recentMoves:snapshot.recentMoves
+      });
+    }else if(gate.prompt){
+      s.messages.push({role:'coach',text:gate.prompt});render();
+    }
+    return;
+  }
+  if(!s.game.isGameOver()&&s.game.turn()==='b')makeOpponentMove();
 }
-async function coachAfterOpponent(fenBefore,move){if(s.missingKey)return;await coachEvent('opponent_move',fenBefore,move)}
+
 async function makeOpponentMove(){
   if(s.opponentBusy||s.paused||s.game.isGameOver()||s.game.turn()!=='b')return;
   s.opponentBusy=true;render();
   try{
     const fenBefore=s.game.fen();
-    const d=await post('/api/opponent-move',{fen:fenBefore,elo:s.opponentElo,movetime:220});
+    const d=await post('/api/opponent-move',{fen:fenBefore,elo:s.opponentElo,movetime:160});
     const u=d.move;
     if(!u||u==='(none)')return;
-    const move=s.game.move({from:u.slice(0,2),to:u.slice(2,4),promotion:u[4]||'q'});
-    pushVoiceContext();render();
-    await coachAfterOpponent(fenBefore,move);
-  }catch(e){pop(`Opponent error: ${e.message}`)}
-  finally{s.opponentBusy=false;render()}
+    s.game.move({from:u.slice(0,2),to:u.slice(2,4),promotion:u[4]||'q'});
+    s.opponentBusy=false;
+    pushVoiceContext();
+    render();
+  }catch(e){
+    s.opponentBusy=false;
+    pop(`Opponent error: ${e.message}`);
+  }
 }
 async function askCoach(text){
   if(!text||s.coachBusy)return;
   s.messages.push({role:'user',text});s.coachBusy=true;render();
   try{
-    const d=await post('/api/coach',{event:'user_question',mode:s.coachMode,fen:s.game.fen(),currentFen:s.game.fen(),recentMoves:recentMoves(),messages:s.messages});
+    const d=await post('/api/coach',{
+      event:'user_question',
+      mode:s.coachMode,
+      fen:s.game.fen(),
+      currentFen:s.game.fen(),
+      recentMoves:recentMoves(),
+      messages:s.messages,
+      lastDecisionContext:s.lastStudentDecision||null
+    });
     s.missingKey=false;
     if(d.coach?.message)s.messages.push({role:'coach',text:d.coach.message});
     captureEvidence(d.coach?.profile_updates||[]);
-    if(d.coach?.pause_game)s.paused=true;
+    if(s.coachMode==='guided'&&d.coach?.pause_game)s.paused=true;
   }catch(e){
     if(e.data?.missingKey){s.missingKey=true;s.messages.push({role:'coach',text:'Stockfish is active, but conversational AI needs an OPENAI_API_KEY configured on Railway.'})}
     else s.messages.push({role:'coach',text:`Coach error: ${e.message}`});
@@ -740,7 +835,7 @@ function mountBoards(){
   if(s.route==='puzzles')mountPuzzleBoard();
   if(s.route==='opening-practice')mountOpeningBoard();
 }
-function coach(){const status=s.opponentBusy?'Opponent is thinking…':s.coachBusy?'Coach is thinking…':s.paused?'Game paused for coaching discussion.':s.voiceStatus==='connecting'?'Connecting voice…':s.voiceStatus==='on'?'Voice coach connected. Think aloud or ask questions naturally.':s.missingKey?'Stockfish is active. Add OPENAI_API_KEY on Railway to enable conversational coaching.':'The coach uses engine evidence selectively and can stay quiet when no intervention is useful.';return `<aside class="card coach"><div class="coachHead">AI Coach <button class="btn voiceBtn" data-action="${s.voiceStatus==='on'?'voice-stop':'voice-start'}" ${s.voiceStatus==='connecting'?'disabled':''}>${s.voiceStatus==='on'?'End voice':s.voiceStatus==='connecting'?'Connecting…':'🎙 Voice'}</button></div><div class="feed">${s.messages.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('')}<div class="notice">${status}</div>${s.voiceError?`<div class="notice">${esc(s.voiceError)}</div>`:''}${s.paused?`<button class="btn primary" data-action="continue-game">Continue game</button>`:''}</div><div class="compose"><input id="coachInput" class="input" placeholder="Ask about the position…" ${s.coachBusy?'disabled':''}><button class="btn primary" data-action="send" ${s.coachBusy?'disabled':''}>Send</button></div></aside>`}
+function coach(){const status=s.opponentBusy?'Opponent is thinking…':s.paused?'Game paused for guided coaching discussion.':s.coachBusy?'Coach is analyzing in the background — you can keep playing.':s.voiceStatus==='connecting'?'Connecting voice…':s.voiceStatus==='on'?'Voice coach connected. Think aloud or ask questions naturally.':s.missingKey?'Stockfish is active. Add OPENAI_API_KEY on Railway to enable conversational coaching.':'Normal mode only flags materially instructive moves; play continues while the coach analyzes.';return `<aside class="card coach"><div class="coachHead">AI Coach <button class="btn voiceBtn" data-action="${s.voiceStatus==='on'?'voice-stop':'voice-start'}" ${s.voiceStatus==='connecting'?'disabled':''}>${s.voiceStatus==='on'?'End voice':s.voiceStatus==='connecting'?'Connecting…':'🎙 Voice'}</button></div><div class="feed">${s.messages.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('')}<div class="notice">${status}</div>${s.voiceError?`<div class="notice">${esc(s.voiceError)}</div>`:''}${s.paused?`<button class="btn primary" data-action="continue-game">Continue game</button>`:''}</div><div class="compose"><input id="coachInput" class="input" placeholder="Ask about the position…" ${s.coachBusy?'disabled':''}><button class="btn primary" data-action="send" ${s.coachBusy?'disabled':''}>Send</button></div></aside>`}
 function play(){return `<section class="page"><div class="head"><div><h1>Play with Coach</h1><p>Play White against a limited-strength Stockfish opponent while the coach observes your reasoning.</p></div></div><div class="workspace"><div class="card boardCard"><div class="player">Training opponent <select id="opponentElo" class="select miniSelect">${[1350,1450,1600,1800,2000].map(x=>`<option value="${x}" ${s.opponentElo===x?'selected':''}>~${x}</option>`).join('')}</select><span class="sub">&nbsp;Stockfish limited strength</span><span class="clock">15:00</span></div>${board(s.game,true,'play-board')}<div class="player">You <span class="sub">&nbsp;White · current baseline ~${currentRapidRating()}</span><span class="clock">15:00</span></div><div class="actions"><button class="btn" data-action="new">New game</button><button class="btn" data-action="undo" ${!s.allowTakebacks||!s.game.history().length?"disabled":""}>Undo / Try again</button><label class="takebackToggle"><input id="takebackToggle" type="checkbox" ${s.allowTakebacks?"checked":""}><span>Takebacks</span></label><button class="btn" data-action="flip">Flip</button><select id="coachMode" class="select miniSelect">${[['normal','Normal'],['guided','Guided'],['minimal','Minimal'],['assessment','Assessment'],['ask_only','Ask only']].map(([v,l])=>`<option value="${v}" ${s.coachMode===v?'selected':''}>${l}</option>`).join('')}</select><span class="sub">${s.paused?'Paused':s.opponentBusy?'Opponent thinking':s.game.isGameOver()?'Game over':s.game.turn()==='w'?'Your move':'Opponent move'}</span></div></div>${coach()}</div></section>`}
 function clickSquare(q){if(s.paused||s.opponentBusy||s.game.isGameOver()||s.game.turn()!=='w')return;if(!s.sel){const p=s.game.get(q);if(!p||p.color!=='w')return;s.sel=q;s.legal=s.game.moves({square:q,verbose:true});return render()}if(q===s.sel){s.sel=null;s.legal=[];return render()}const m=s.legal.find(x=>x.to===q);if(m){const fenBefore=s.game.fen();const done=s.game.move({from:s.sel,to:q,promotion:'q'});s.sel=null;s.legal=[];pushVoiceContext();render();coachAfterMove(fenBefore,done);return}const p=s.game.get(q);if(p&&p.color==='w'){s.sel=q;s.legal=s.game.moves({square:q,verbose:true});render()}}
 function analyze(){
