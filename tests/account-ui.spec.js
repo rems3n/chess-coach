@@ -5,8 +5,8 @@ test('Guest Profile offers real account sign-in and registration', async ({ page
   await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
   await expect(page.locator('#authEmail')).toBeVisible();
   await expect(page.locator('#authPassword')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible();
+  await expect(page.locator('section.accountPage').getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(page.locator('section.accountPage').getByRole('button', { name: 'Create account', exact: true })).toBeVisible();
 });
 
 test('Logged-in profile owns Chess.com connection and Analyze reuses it', async ({ page }) => {
