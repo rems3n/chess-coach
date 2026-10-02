@@ -1,5 +1,5 @@
 import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1.4.0/+esm';
-import { Chessboard as CmChessboard, COLOR, INPUT_EVENT_TYPE } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@8/src/Chessboard.js';
+import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.4.1/+esm';
 import { emptyMastery, recordPuzzleAttempt, recordMasteryAttempt, masteryStatus, prioritizePuzzles, masterySummary } from './mastery.js';
 import { buildOpeningItems, openingQueue } from './opening-training.js';
 
@@ -9,8 +9,6 @@ const s={route:location.hash.replace('#/','')||'home',game:new Chess(),sel:null,
 const app=document.querySelector('#app');
 let voicePeer=null,voiceChannel=null,voiceMedia=null,voiceAudio=null;
 let mountedBoards=[];
-let pendingBoardMove=null;
-const CM_ASSETS='https://cdn.jsdelivr.net/npm/cm-chessboard@8/assets/';
 function voiceContext(){
   const inReview=s.route==='review'&&s.review&&s.rgame;
   return {
@@ -366,107 +364,120 @@ function home(){
     : p?.summary||'Your plan will be generated from imported games, puzzle mastery, opening mastery, and coaching evidence. It is always optional.';
   return `<section class="page"><div class="head"><div><h1>Good morning, Chris</h1><p>Better decisions. Stronger chess.</p></div></div><div class="grid3"><div class="card summary"><div class="label">Chess.com Rapid</div><div class="value">1,438</div><div class="sub">Current working baseline</div></div><div class="card summary"><div class="label">Next milestone</div><div class="value">1,800</div><div class="sub">Longer-term goal: 2,000</div></div><div class="card summary"><div class="label">Reviews due</div><div class="value">${mastery.due+openingReviews.due}</div><div class="sub">${mastery.due} puzzles · ${openingReviews.due} openings</div></div></div><div class="card rec"><div class="recHead"><h2>Today’s recommendation</h2><span class="sub">Optional</span><button class="btn" style="margin-left:auto" data-action="refresh-profile">${s.profileBusy?'Updating…':'Update plan'}</button></div><div class="recBody"><div class="recList">${recs}</div><div class="why"><strong>Why these?</strong><br><br>${esc(why)}</div></div></div><div class="section"><h2>Or choose what you’d like to do</h2><div class="quickGrid">${quick('🎮','Play','Train with the AI coach','play')}${quick('✣','Puzzles',mastery.due?`${mastery.due} due for review`:'Practice tactics and calculation','puzzles')}${quick('▤','Learn','Browse concepts and lessons','learn')}${quick('♙','Openings',openingReviews.due?`${openingReviews.due} due for review`:'Study and practice your repertoire','openings')}${quick('⌕','Analyze','Import and review games','analyze')}${quick('▥','Progress','See your learning profile','progress')}</div></div></section>`;
 }
-function board(game,interactive=true,id='chessboard'){return `<div class="boardShell"><div class="boardFrame"><div class="cmBoard" id="${id}" data-interactive="${interactive?'1':'0'}"></div></div></div>`}
+function board(game,interactive=true,id='chessboard'){return \`<div class="boardShell"><div class="boardFrame"><div class="cgBoard cg-wrap" id="\${id}" data-interactive="\${interactive?'1':'0'}"></div></div></div>\`}
 function destroyBoards(){for(const b of mountedBoards){try{b.destroy()}catch{}}mountedBoards=[]}
-function mountCmBoard(id,game,interactive=false){
-  const el=document.getElementById(id);if(!el||!game)return;
-  const cm=new CmChessboard(el,{
-    position:game.fen(),
-    orientation:s.orient==='white'?COLOR.white:COLOR.black,
-    responsive:true,
-    assetsUrl:CM_ASSETS,
-    style:{cssClass:'blue',showCoordinates:true,aspectRatio:1,animationDuration:180}
-  });
-  mountedBoards.push(cm);
-  if(!interactive)return;
-  cm.enableMoveInput(event=>{
-    if(event.type===INPUT_EVENT_TYPE.moveInputStarted){
-      if(s.paused||s.opponentBusy||s.game.isGameOver()||s.game.turn()!=='w')return false;
-      const piece=s.game.get(event.squareFrom);
-      return !!piece&&piece.color==='w';
-    }
-    if(event.type===INPUT_EVENT_TYPE.validateMoveInput){
-      const legal=s.game.moves({square:event.squareFrom,verbose:true});
-      const move=legal.find(x=>x.to===event.squareTo&&(!x.promotion||x.promotion==='q'));
-      if(!move)return false;
-      const fenBefore=s.game.fen();
-      const done=s.game.move({from:event.squareFrom,to:event.squareTo,promotion:move.promotion||'q'});
-      pendingBoardMove={fenBefore,done};
-      return true;
-    }
-    if(event.type===INPUT_EVENT_TYPE.moveInputFinished&&pendingBoardMove){
-      const {fenBefore,done}=pendingBoardMove;pendingBoardMove=null;
-      pushVoiceContext();render();coachAfterMove(fenBefore,done);
-    }
-    return true;
-  },COLOR.white);
+function cgColor(turn){return turn==='w'?'white':'black'}
+function cgDests(game){
+  const map=new Map();
+  for(const m of game.moves({verbose:true})){
+    if(!map.has(m.from))map.set(m.from,[]);
+    if(!map.get(m.from).includes(m.to))map.get(m.from).push(m.to);
+  }
+  return map;
 }
-
+function cgLastMove(game){
+  const h=game.history({verbose:true});
+  const m=h[h.length-1];
+  return m?[m.from,m.to]:undefined;
+}
+function cgConfig(game,{orientation=s.orient,interactive=false,color=null,onMove=null}={}){
+  const turn=cgColor(game.turn());
+  return {
+    fen:game.fen(),
+    orientation,
+    turnColor:turn,
+    coordinates:true,
+    coordinatesOnSquares:false,
+    viewOnly:!interactive,
+    lastMove:cgLastMove(game),
+    check:game.inCheck()?turn:false,
+    animation:{enabled:true,duration:180},
+    draggable:{enabled:interactive,showGhost:true},
+    selectable:{enabled:interactive},
+    movable:interactive?{
+      free:false,
+      color:color||turn,
+      dests:cgDests(game),
+      showDests:true,
+      events:{after:(orig,dest,metadata)=>onMove?.(orig,dest,metadata)}
+    }:{free:false,color:undefined,dests:new Map(),showDests:false}
+  };
+}
+function mountGround(id,game,options={}){
+  const el=document.getElementById(id);if(!el||!game)return null;
+  const ground=Chessground(el,cgConfig(game,options));
+  mountedBoards.push(ground);
+  return ground;
+}
+function mountPlayBoard(){
+  mountGround('play-board',s.game,{
+    orientation:s.orient,
+    interactive:true,
+    color:'white',
+    onMove:(orig,dest)=>{
+      if(s.paused||s.opponentBusy||s.game.isGameOver()||s.game.turn()!=='w'){render();return}
+      const legal=s.game.moves({square:orig,verbose:true});
+      const move=legal.find(x=>x.to===dest&&(!x.promotion||x.promotion==='q'));
+      if(!move){render();return}
+      const fenBefore=s.game.fen();
+      const done=s.game.move({from:orig,to:dest,promotion:move.promotion||'q'});
+      if(!done){render();return}
+      pushVoiceContext();
+      render();
+      coachAfterMove(fenBefore,done);
+    }
+  });
+}
 function mountPuzzleBoard(){
   const p=currentPuzzle(),el=document.getElementById('puzzle-board');if(!p||!el)return;
   ensurePuzzleState(p);
   const game=new Chess(s.puzzleFen||p.fen);
   const originalTurn=new Chess(p.fen).turn();
   const turn=game.turn();
-  const cm=new CmChessboard(el,{
-    position:game.fen(),
-    orientation:originalTurn==='w'?COLOR.white:COLOR.black,
-    responsive:true,
-    assetsUrl:CM_ASSETS,
-    style:{cssClass:'blue',showCoordinates:true,aspectRatio:1,animationDuration:180}
-  });
-  mountedBoards.push(cm);
-  cm.enableMoveInput(event=>{
-    if(['correct','incorrect'].includes(s.puzzleResult))return false;
-    if(event.type===INPUT_EVENT_TYPE.moveInputStarted){
-      const piece=game.get(event.squareFrom);return !!piece&&piece.color===turn;
-    }
-    if(event.type===INPUT_EVENT_TYPE.validateMoveInput){
-      const legal=game.moves({square:event.squareFrom,verbose:true});
-      const move=legal.find(x=>x.to===event.squareTo&&(!x.promotion||x.promotion==='q'));
-      if(!move)return false;
-      const uci=event.squareFrom+event.squareTo+(move.promotion||'');
+  mountGround('puzzle-board',game,{
+    orientation:cgColor(originalTurn),
+    interactive:true,
+    color:cgColor(turn),
+    onMove:(orig,dest)=>{
+      if(['correct','incorrect'].includes(s.puzzleResult)){render();return}
+      const legal=game.moves({square:orig,verbose:true});
+      const move=legal.find(x=>x.to===dest&&(!x.promotion||x.promotion==='q'));
+      if(!move){render();return}
+      const uci=orig+dest+(move.promotion||'');
       const line=s.puzzleLine?.id===p.id?s.puzzleLine.pv:[];
       const expected=line[s.puzzleLineIndex]||(s.puzzleLineIndex===0?p.bestUci:null);
       s.puzzleAttempt=move.san;
       if(expected&&uci!==expected){
         if(!s.puzzleWrongThisRound){s.puzzleWrongThisRound=true;savePuzzleOutcome(p,false)}
         s.puzzleResult='incorrect';
-        setTimeout(render,80);
-        return false;
+        setTimeout(render,0);
+        return;
       }
-      const done=game.move({from:event.squareFrom,to:event.squareTo,promotion:move.promotion||'q'});
-      if(!done)return false;
-      pendingBoardMove={type:'puzzle',puzzle:p,game,cm};
-      return true;
-    }
-    if(event.type===INPUT_EVENT_TYPE.moveInputFinished&&pendingBoardMove?.type==='puzzle'){
-      const line=s.puzzleLine?.id===p.id?s.puzzleLine.pv:[];
+      const done=game.move({from:orig,to:dest,promotion:move.promotion||'q'});
+      if(!done){render();return}
       const opponentUci=line[s.puzzleLineIndex+1];
       const nextUserUci=line[s.puzzleLineIndex+2];
       s.puzzleStep+=1;
-      pendingBoardMove=null;
       if(opponentUci&&nextUserUci&&s.puzzleStep<2&&!game.isGameOver()){
         try{
           game.move({from:opponentUci.slice(0,2),to:opponentUci.slice(2,4),promotion:opponentUci[4]||'q'});
           s.puzzleFen=game.fen();
           s.puzzleLineIndex+=2;
           s.puzzleResult='continue';
-          setTimeout(render,180);
-          return true;
+          setTimeout(render,120);
+          return;
         }catch{}
       }
       s.puzzleFen=game.fen();
       s.puzzleResult='correct';
       savePuzzleOutcome(p,true);
-      setTimeout(render,100);
+      setTimeout(render,50);
     }
-    return true;
-  },turn==='w'?COLOR.white:COLOR.black);
+  });
 }
 function mountBoards(){
-  if(s.route==='play')mountCmBoard('play-board',s.game,true);
-  if(s.route==='review')mountCmBoard('review-board',s.rgame,false);
+  if(s.route==='play')mountPlayBoard();
+  if(s.route==='review')mountGround('review-board',s.rgame,{orientation:s.orient,interactive:false});
   if(s.route==='puzzles')mountPuzzleBoard();
   if(s.route==='opening-practice')mountOpeningBoard();
 }
@@ -680,25 +691,29 @@ function mountOpeningBoard(){
   const item=currentOpeningItem(),el=document.getElementById('opening-board');if(!item||!el)return;
   ensureOpeningState(item);
   const game=new Chess(item.fen),turn=game.turn();
-  const cm=new CmChessboard(el,{position:game.fen(),orientation:item.color==='black'?COLOR.black:COLOR.white,responsive:true,assetsUrl:CM_ASSETS,style:{cssClass:'blue',showCoordinates:true,aspectRatio:1,animationDuration:180}});
-  mountedBoards.push(cm);
-  cm.enableMoveInput(event=>{
-    if(['correct','incorrect'].includes(s.openingResult))return false;
-    if(event.type===INPUT_EVENT_TYPE.moveInputStarted){const piece=game.get(event.squareFrom);return !!piece&&piece.color===turn}
-    if(event.type===INPUT_EVENT_TYPE.validateMoveInput){
-      const legal=game.moves({square:event.squareFrom,verbose:true});
-      const move=legal.find(x=>x.to===event.squareTo&&(!x.promotion||x.promotion==='q'));
-      if(!move)return false;
-      const uci=event.squareFrom+event.squareTo+(move.promotion||'');s.openingAttempt=move.san;
+  mountGround('opening-board',game,{
+    orientation:item.color==='black'?'black':'white',
+    interactive:true,
+    color:cgColor(turn),
+    onMove:(orig,dest)=>{
+      if(['correct','incorrect'].includes(s.openingResult)){render();return}
+      const legal=game.moves({square:orig,verbose:true});
+      const move=legal.find(x=>x.to===dest&&(!x.promotion||x.promotion==='q'));
+      if(!move){render();return}
+      const uci=orig+dest+(move.promotion||'');
+      s.openingAttempt=move.san;
       if(uci!==item.expectedUci){
         if(!s.openingWrongThisRound){s.openingWrongThisRound=true;saveOpeningOutcome(item,false)}
-        s.openingResult='incorrect';setTimeout(render,80);return false;
+        s.openingResult='incorrect';
+        setTimeout(render,0);
+        return;
       }
-      game.move({from:event.squareFrom,to:event.squareTo,promotion:move.promotion||'q'});
-      s.openingResult='correct';saveOpeningOutcome(item,true);setTimeout(render,100);return true;
+      game.move({from:orig,to:dest,promotion:move.promotion||'q'});
+      s.openingResult='correct';
+      saveOpeningOutcome(item,true);
+      setTimeout(render,50);
     }
-    return true;
-  },turn==='w'?COLOR.white:COLOR.black);
+  });
 }
 
 function openingRow(x){
