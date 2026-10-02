@@ -264,19 +264,6 @@ ${JSON.stringify(context)}
       try {
         const body = await readJson(req);
         if (!process.env.OPENAI_API_KEY) return json(res, 503, { error: 'OPENAI_API_KEY is not configured', missingKey: true });
-        const engineFen = body.fenBefore || body.fen || body.currentFen;
-        let engine = null;
-        let played = null;
-        if (engineFen) {
-          engine = await analyzeFen(engineFen, { depth: Number(body.depth || 9), multiPv: 3 });
-          if (body.lastMoveUci && body.fenBefore) {
-            played = await analyzeFen(body.fenBefore, {
-              depth: Number(body.depth || 9),
-              multiPv: 1,
-              searchMoves: [body.lastMoveUci]
-            });
-          }
-        }
         const context = {
           event: body.event || 'user_question',
           mode: body.mode || 'normal',
@@ -293,14 +280,13 @@ ${JSON.stringify(context)}
             nextGoal: 1800,
             longTermGoal: 2000,
             currentPriorities: ['candidate generation','defensive awareness','calculation discipline']
-          },
-          engine: engine ? { bestmove: engine.bestmove, lines: engine.lines.slice(0,3), played: played?.lines?.[0] || null } : null
+          }
         };
         try {
           const coach = await coachResponse(context);
-          return json(res, 200, { coach, engine: context.engine, model: process.env.OPENAI_MODEL || 'gpt-5.6-terra' });
+          return json(res, 200, { coach, model: process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol' });
         } catch (err) {
-          if (err.code === 'MISSING_OPENAI_KEY') return json(res, 503, { error: err.message, missingKey: true, engine: context.engine });
+          if (err.code === 'MISSING_OPENAI_KEY') return json(res, 503, { error: err.message, missingKey: true });
           throw err;
         }
       } catch (err) { return json(res, 400, { error: err.message || 'Coach request failed' }); }
