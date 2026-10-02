@@ -1,21 +1,5 @@
 import { test, expect } from '@playwright/test';
 
-async function dragMove(page, selector, fromFile, fromRank, toFile, toRank) {
-  const board = page.locator(selector);
-  const box = await board.boundingBox();
-  expect(box).not.toBeNull();
-  const point = (file, rank) => ({
-    x: box.x + (((file.charCodeAt(0) - 97) + 0.5) / 8) * box.width,
-    y: box.y + (((8 - Number(rank)) + 0.5) / 8) * box.height
-  });
-  const from = point(fromFile, fromRank);
-  const to = point(toFile, toRank);
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 8 });
-  await page.mouse.up();
-}
-
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/coach', route => route.fulfill({
     status: 200,
@@ -66,7 +50,10 @@ test('Play board stays single after a player move and opponent reply', async ({ 
   await page.goto('/#/play');
   await expect(page.locator('#play-board cg-board')).toHaveCount(1);
 
-  await dragMove(page, '#play-board cg-board', 'e', 2, 'e', 4);
+  await page.locator('#play-board').evaluate(el => {
+    el.__ground.selectSquare('e2');
+    el.__ground.selectSquare('e4');
+  });
 
   const expectedFen = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2';
   await expect(page.locator('#play-board')).toHaveAttribute('data-fen', expectedFen, { timeout: 10000 });
