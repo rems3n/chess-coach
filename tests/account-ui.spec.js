@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('Guest Profile offers real account sign-in and registration', async ({ page }) => {
   await page.goto('/#/profile');
-  await expect(page.getByRole('heading', { name: 'Account' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
   await expect(page.locator('#authEmail')).toBeVisible();
   await expect(page.locator('#authPassword')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
