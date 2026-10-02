@@ -326,6 +326,7 @@ ${JSON.stringify(context)}
           conversation: Array.isArray(body.messages) ? body.messages.slice(-12) : [],
           reviewContext: body.reviewContext || null,
           retryContext: body.retryContext || null,
+          lastDecisionContext: body.lastDecisionContext || null,
           studentProfile: body.studentProfile || {
             approximateRating: '1200-1500 online',
             nextGoal: 1800,
