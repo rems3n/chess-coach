@@ -344,9 +344,11 @@ function quick(i,t,d,r){return `<button class="quick" data-route="${r}"><i>${i}<
 function home(){
   const p=s.profilePlan;
   const mastery=masterySummary(puzzleItems(),s.puzzleMastery);
+  const openingReviews=masterySummary(openingTrainingItems(),s.openingMastery);
   const weekly=[...(p?.weekly_plan||[])];
   const cards=[];
   if(mastery.due>0)cards.push({activity:'Review due puzzles',minutes:Math.min(15,Math.max(5,mastery.due*2)),focus:`${mastery.due} position${mastery.due===1?'':'s'} due`,destination:'puzzles'});
+  if(openingReviews.due>0&&cards.length<4)cards.push({activity:'Review opening repertoire',minutes:Math.min(15,Math.max(5,openingReviews.due*2)),focus:`${openingReviews.due} position${openingReviews.due===1?'':'s'} due`,destination:'openings'});
   for(const x of weekly){if(cards.length>=4)break;cards.push(x)}
   if(!cards.length)cards.push(
     {activity:'Tactical warm-up',minutes:10,focus:'Recent weaknesses',destination:'puzzles'},
@@ -355,10 +357,13 @@ function home(){
     {activity:'Play with Coach',minutes:20,focus:'Play and discuss',destination:'play'}
   );
   const recs=cards.slice(0,4).map((x,i)=>rec(['✣','◎','♜','♞'][i]||'•',x.activity,`${x.minutes} min · ${x.focus}`,x.destination)).join('');
-  const why=mastery.due>0
-    ? `${mastery.due} previously studied puzzle${mastery.due===1?' is':'s are'} due for review. ${p?.summary||'The rest of the plan comes from your current development priorities.'}`
-    : p?.summary||'Your plan will be generated from imported games, puzzle mastery, and coaching evidence. It is always optional.';
-  return `<section class="page"><div class="head"><div><h1>Good morning, Chris</h1><p>Better decisions. Stronger chess.</p></div></div><div class="grid3"><div class="card summary"><div class="label">Chess.com Rapid</div><div class="value">1,438</div><div class="sub">Current working baseline</div></div><div class="card summary"><div class="label">Next milestone</div><div class="value">1,800</div><div class="sub">Longer-term goal: 2,000</div></div><div class="card summary"><div class="label">Puzzle review</div><div class="value">${mastery.due}</div><div class="sub">${mastery.mastered} mastered · ${mastery.learning} learning</div></div></div><div class="card rec"><div class="recHead"><h2>Today’s recommendation</h2><span class="sub">Optional</span><button class="btn" style="margin-left:auto" data-action="refresh-profile">${s.profileBusy?'Updating…':'Update plan'}</button></div><div class="recBody"><div class="recList">${recs}</div><div class="why"><strong>Why these?</strong><br><br>${esc(why)}</div></div></div><div class="section"><h2>Or choose what you’d like to do</h2><div class="quickGrid">${quick('🎮','Play','Train with the AI coach','play')}${quick('✣','Puzzles',mastery.due?`${mastery.due} due for review`:'Practice tactics and calculation','puzzles')}${quick('▤','Learn','Browse concepts and lessons','learn')}${quick('♙','Openings','Study your repertoire','openings')}${quick('⌕','Analyze','Import and review games','analyze')}${quick('▥','Progress','See your learning profile','progress')}</div></div></section>`;
+  const dueParts=[];
+  if(mastery.due)dueParts.push(`${mastery.due} puzzle${mastery.due===1?'':'s'}`);
+  if(openingReviews.due)dueParts.push(`${openingReviews.due} opening position${openingReviews.due===1?'':'s'}`);
+  const why=dueParts.length
+    ? `${dueParts.join(' and ')} due for spaced review. ${p?.summary||'The rest of the plan comes from your current development priorities.'}`
+    : p?.summary||'Your plan will be generated from imported games, puzzle mastery, opening mastery, and coaching evidence. It is always optional.';
+  return `<section class="page"><div class="head"><div><h1>Good morning, Chris</h1><p>Better decisions. Stronger chess.</p></div></div><div class="grid3"><div class="card summary"><div class="label">Chess.com Rapid</div><div class="value">1,438</div><div class="sub">Current working baseline</div></div><div class="card summary"><div class="label">Next milestone</div><div class="value">1,800</div><div class="sub">Longer-term goal: 2,000</div></div><div class="card summary"><div class="label">Reviews due</div><div class="value">${mastery.due+openingReviews.due}</div><div class="sub">${mastery.due} puzzles · ${openingReviews.due} openings</div></div></div><div class="card rec"><div class="recHead"><h2>Today’s recommendation</h2><span class="sub">Optional</span><button class="btn" style="margin-left:auto" data-action="refresh-profile">${s.profileBusy?'Updating…':'Update plan'}</button></div><div class="recBody"><div class="recList">${recs}</div><div class="why"><strong>Why these?</strong><br><br>${esc(why)}</div></div></div><div class="section"><h2>Or choose what you’d like to do</h2><div class="quickGrid">${quick('🎮','Play','Train with the AI coach','play')}${quick('✣','Puzzles',mastery.due?`${mastery.due} due for review`:'Practice tactics and calculation','puzzles')}${quick('▤','Learn','Browse concepts and lessons','learn')}${quick('♙','Openings',openingReviews.due?`${openingReviews.due} due for review`:'Study and practice your repertoire','openings')}${quick('⌕','Analyze','Import and review games','analyze')}${quick('▥','Progress','See your learning profile','progress')}</div></div></section>`;
 }
 function board(game,interactive=true,id='chessboard'){return `<div class="boardShell"><div class="boardFrame"><div class="cmBoard" id="${id}" data-interactive="${interactive?'1':'0'}"></div></div></div>`}
 function destroyBoards(){for(const b of mountedBoards){try{b.destroy()}catch{}}mountedBoards=[]}
