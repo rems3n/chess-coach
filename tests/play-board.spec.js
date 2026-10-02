@@ -1,15 +1,19 @@
 import { test, expect } from '@playwright/test';
 
-async function clickSquare(page, selector, file, rank) {
+async function dragMove(page, selector, fromFile, fromRank, toFile, toRank) {
   const board = page.locator(selector);
   const box = await board.boundingBox();
   expect(box).not.toBeNull();
-  const fileIndex = file.charCodeAt(0) - 97;
-  const rankIndex = 8 - Number(rank);
-  await page.mouse.click(
-    box.x + ((fileIndex + 0.5) / 8) * box.width,
-    box.y + ((rankIndex + 0.5) / 8) * box.height
-  );
+  const point = (file, rank) => ({
+    x: box.x + (((file.charCodeAt(0) - 97) + 0.5) / 8) * box.width,
+    y: box.y + (((8 - Number(rank)) + 0.5) / 8) * box.height
+  });
+  const from = point(fromFile, fromRank);
+  const to = point(toFile, toRank);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -50,7 +54,7 @@ test('Play board renders as one complete square Chessground board', async ({ pag
   expect(Math.abs(boardBox.width - boardBox.height)).toBeLessThan(8);
 
   await expect(page.locator('#play-board cg-board')).toHaveCount(1);
-  await expect(page.locator('#play-board piece')).toHaveCount(32);
+  await expect(page.locator('#play-board piece:not(.ghost)')).toHaveCount(32);
 
   const playerRows = page.locator('.boardCard .player');
   await expect(playerRows).toHaveCount(2);
@@ -62,15 +66,14 @@ test('Play board stays single after a player move and opponent reply', async ({ 
   await page.goto('/#/play');
   await expect(page.locator('#play-board cg-board')).toHaveCount(1);
 
-  await clickSquare(page, '#play-board cg-board', 'e', 2);
-  await clickSquare(page, '#play-board cg-board', 'e', 4);
+  await dragMove(page, '#play-board cg-board', 'e', 2, 'e', 4);
 
   const expectedFen = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2';
   await expect(page.locator('#play-board')).toHaveAttribute('data-fen', expectedFen, { timeout: 10000 });
 
   await expect(page.locator('#play-board')).toHaveCount(1);
   await expect(page.locator('#play-board cg-board')).toHaveCount(1);
-  await expect(page.locator('#play-board piece')).toHaveCount(32);
+  await expect(page.locator('#play-board piece:not(.ghost)')).toHaveCount(32);
 
   const boardBox = await page.locator('#play-board cg-board').boundingBox();
   expect(boardBox).not.toBeNull();
