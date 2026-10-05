@@ -96,8 +96,8 @@ Before treating a coaching prompt/model change as an improvement, target:
 
 Latency should be tracked separately by interaction type rather than traded blindly against correctness.
 
-## GitHub Actions
+## Railway execution
 
-`Coach Evals` is a manual workflow because it uses paid model calls. It requires an `OPENAI_API_KEY` repository secret. Each run uploads the JSON and Markdown reports as a workflow artifact.
+Coach evals run from the dedicated `coach-evals` Railway service. The service references the existing Railway `OPENAI_API_KEY`, uses the same repository and Stockfish-enabled runtime, and runs the full judged benchmark on a daily cron.
 
-The normal regression workflow validates the eval corpus itself without making paid API calls.
+No GitHub Actions secret is required.
