@@ -262,6 +262,7 @@ test('Normal mode never blocks play on background coaching', async ({ page }) =>
   expect(Date.now() - started).toBeLessThan(1400);
 
   // Make the next move while the first coaching gate is still pending.
+  await expect.poll(() => page.locator('#play-board').evaluate(el => !!el.__ground)).toBe(true);
   await page.locator('#play-board').evaluate(el => {
     el.__ground.selectSquare('d2');
     el.__ground.selectSquare('d4');
