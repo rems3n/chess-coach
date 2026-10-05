@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeFen } from './lib/stockfish.mjs';
 import { Chess } from 'chess.js';
+import { buildDecisionPacket } from './lib/decision-packet.mjs';
 import { analyzeGame } from './lib/game-analysis.mjs';
 import { coachResponse } from './lib/coach.mjs';
 import { generateProfilePlan } from './lib/profile.mjs';
@@ -273,25 +274,21 @@ ${JSON.stringify(context)}
           analyzeFen(body.fenBefore, { depth:11, multiPv:3 }),
           analyzeFen(body.fenBefore, { depth:11, multiPv:1, searchMoves:[body.lastMoveUci] })
         ]);
-        const best = top.lines[0];
-        const playedLine = played.lines[0];
-        const scoreNumberLocal = score => {
-          if (!score) return 0;
-          if (score.type === 'cp') return score.value;
-          return score.value > 0 ? 100000 - Math.min(Math.abs(score.value),999)*100 : -100000 + Math.min(Math.abs(score.value),999)*100;
-        };
-        const cpLoss = Math.max(0, Math.round(scoreNumberLocal(best?.score) - scoreNumberLocal(playedLine?.score)));
+        const rating = Number(body.rating || 1500) || 1500;
+        const decision = buildDecisionPacket({
+          fen:body.fenBefore,
+          topLines:top.lines,
+          playedLine:played.lines[0] || null,
+          playedUci:body.lastMoveUci,
+          rating,
+          maxCandidates:3
+        });
+        const cpLoss = decision.cpLoss ?? 0;
         const threshold = mode === 'guided' ? 60 : mode === 'minimal' ? 220 : 120;
         const shouldIntervene = !!body.retryContext || cpLoss >= threshold;
-        const bestUci = best?.pv?.[0] || null;
-        const bestSan = bestUci ? (() => {
-          try {
-            const game = new Chess(body.fenBefore);
-            return game.move({from:bestUci.slice(0,2),to:bestUci.slice(2,4),promotion:bestUci[4]||'q'})?.san || null;
-          } catch { return null; }
-        })() : null;
-        const forcing = !!bestSan && /[x+#]/.test(bestSan);
-        const classification = cpLoss >= 250 ? 'blunder' : cpLoss >= 120 ? 'mistake' : cpLoss >= 60 ? 'inaccuracy' : 'near_best';
+        const bestSan = decision.bestMove?.san || null;
+        const forcing = decision.forcingOpportunity;
+        const classification = decision.classification || 'near_best';
         let prompt = '';
         if (shouldIntervene) {
           if (body.retryContext) prompt = `Retry recorded for ${body.lastMoveSan || 'your move'}. I’ll compare it with the original decision.`;
@@ -307,7 +304,8 @@ ${JSON.stringify(context)}
           forcing,
           bestMoveSan: bestSan,
           prompt,
-          engineDepth: best?.depth || 11
+          engineDepth: decision.bestMove?.depth || 11,
+          decision
         });
       } catch (err) { return json(res, 400, { error: err.message || 'Coach gate failed' }); }
     }
