@@ -9,6 +9,9 @@ on:
       - 'playwright.config.js'
       - 'package.json'
       - 'server.mjs'
+      - 'lib/**'
+      - 'evals/**'
+      - 'scripts/**'
   workflow_dispatch:
 
 jobs:
