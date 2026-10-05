@@ -17,7 +17,11 @@ jobs:
   coach-evals:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: ${{ secrets.OPENAI_API_KEY != '' }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      STOCKFISH_PATH: /usr/games/stockfish
+      OPENAI_COACH_MODEL: gpt-5.6-sol
+      OPENAI_EVAL_MODEL: gpt-5.6-sol
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,16 +30,17 @@ jobs:
           cache: npm
           cache-dependency-path: package.json
       - run: npm install
+      - name: Require eval API key
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY repository secret is required to run live coach evals."
+            exit 1
+          fi
       - name: Install Stockfish
         run: |
           sudo apt-get update
           sudo apt-get install -y stockfish
       - name: Run coach evals
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          STOCKFISH_PATH: /usr/games/stockfish
-          OPENAI_COACH_MODEL: gpt-5.6-sol
-          OPENAI_EVAL_MODEL: gpt-5.6-sol
         run: |
           if [ "${{ inputs.use_judge }}" = "true" ]; then
             npm run eval:coach -- --judge --max=${{ inputs.max_cases }}
