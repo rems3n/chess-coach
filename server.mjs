@@ -285,7 +285,7 @@ ${JSON.stringify(context)}
         });
         const cpLoss = decision.cpLoss ?? 0;
         const threshold = mode === 'guided' ? 60 : mode === 'minimal' ? 220 : 120;
-        const shouldIntervene = !!body.retryContext || cpLoss >= threshold;
+        const shouldIntervene = !!body.retryContext || (!decision.practical?.reasonable && cpLoss >= threshold);
         const bestSan = decision.bestMove?.san || null;
         const forcing = decision.forcingOpportunity;
         const classification = decision.classification || 'near_best';
