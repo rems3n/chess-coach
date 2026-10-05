@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.mjs",
     "test:ui": "playwright test",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "eval:coach": "node scripts/run-coach-evals.mjs"
   },
   "engines": {
     "node": ">=20"
