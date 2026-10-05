@@ -6,7 +6,7 @@ import { analyzeFen } from './lib/stockfish.mjs';
 import { Chess } from 'chess.js';
 import { buildDecisionPacket } from './lib/decision-packet.mjs';
 import { analyzeGame } from './lib/game-analysis.mjs';
-import { coachResponse } from './lib/coach.mjs';
+import { coachResponseDetailed } from './lib/coach.mjs';
 import { generateProfilePlan } from './lib/profile.mjs';
 import { generateLesson } from './lib/lesson.mjs';
 import { initDb } from './lib/db.mjs';
@@ -333,8 +333,23 @@ ${JSON.stringify(context)}
           }
         };
         try {
-          const coach = await coachResponse(context);
-          return json(res, 200, { coach, model: process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol' });
+          const detailed = await coachResponseDetailed(context);
+          const coach = detailed.coach;
+          const diag = detailed.diagnostics || {};
+          console.log('COACH_METRIC ' + JSON.stringify({
+            at:new Date().toISOString(),
+            event:context.event,
+            mode:context.mode,
+            model:diag.model || process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol',
+            latencyMs:diag.latencyMs ?? null,
+            verificationLatencyMs:diag.verificationLatencyMs ?? null,
+            modelTurns:diag.modelTurns ?? null,
+            toolCalls:(diag.toolCalls || []).map(x=>x.name),
+            intervened:!!coach?.intervene,
+            paused:!!coach?.pause_game,
+            profileUpdates:Array.isArray(coach?.profile_updates)?coach.profile_updates.length:0
+          }));
+          return json(res, 200, { coach, model: diag.model || process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol' });
         } catch (err) {
           if (err.code === 'MISSING_OPENAI_KEY') return json(res, 503, { error: err.message, missingKey: true });
           throw err;
